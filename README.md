@@ -17,16 +17,30 @@ A persistent controller service (`bk-stack-controller`) registers with a Buildki
 
 ## Quick Start
 
-```bash
-sudo bash install.sh
-```
-
-The installer is interactive and walks through all configuration. Two useful flags:
+**Interactive install** — walks through all configuration prompts:
 
 ```bash
-sudo bash install.sh --dry-run      # preview all changes without applying them
-sudo bash install.sh --unattended   # non-interactive; reads config from environment variables
+bash <(curl -fsSL https://raw.githubusercontent.com/tomowatt/buildkite-agent-systemd-stack/main/install.sh)
 ```
+
+**Unattended install** — for scripted/CI use; set required variables in the environment first:
+
+```bash
+export BK_AGENT_TOKEN=<token>
+export BK_STACK_KEY=<stack-key>
+export BK_AGENTAPI_BASE_URL=https://agent.buildkite.com/v3
+
+curl -fsSL https://raw.githubusercontent.com/tomowatt/buildkite-agent-systemd-stack/main/install.sh \
+  | sudo bash -s -- --unattended
+```
+
+To preview changes before applying, add `--dry-run`:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/tomowatt/buildkite-agent-systemd-stack/main/install.sh) --dry-run
+```
+
+> **Prefer to inspect first?** Clone the repo and run `sudo bash install.sh` locally.
 
 After installation, the controller writes a config file at `/etc/bk-stack/controller.env`. The three required variables are:
 

@@ -39,7 +39,7 @@ readonly ENV_FILE="${CONFIG_DIR}/controller.env"
 readonly SERVICE_USER="bk-stack"
 
 # GitHub raw URL for the controller script (update to match your repo)
-readonly CONTROLLER_SCRIPT_URL="${CONTROLLER_SCRIPT_URL:-https://raw.githubusercontent.com/YOUR_ORG/YOUR_REPO/main/bk-stack-controller.sh}"
+readonly CONTROLLER_SCRIPT_URL="${CONTROLLER_SCRIPT_URL:-https://raw.githubusercontent.com/tomowatt/buildkite-agent-systemd-stack/main/bk-stack-controller.sh}"
 
 # Flags
 UNATTENDED=0
