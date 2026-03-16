@@ -121,7 +121,7 @@ api_call() {
     curl --silent --fail-with-body \
         --max-time 30 \
         -X "$method" \
-        -H "Authorization: Token token=\"${BK_AGENT_TOKEN}\"" \
+        -H "Authorization: Token ${BK_AGENT_TOKEN}" \
         -H "Content-Type: application/json" \
         "$@" \
         "$url"
@@ -134,9 +134,9 @@ register_stack() {
 
     local payload
     payload=$(jq -n \
-        --arg key  "$BK_STACK_KEY" \
+        --arg key   "$BK_STACK_KEY" \
         --arg queue "$BK_QUEUE" \
-        '{ stack_key: $key, queue: $queue }')
+        '{ key: $key, type: "systemd", queue_key: $queue }')
 
     local response
     response=$(api_call POST "/stacks/register" --data "$payload") \
@@ -164,7 +164,7 @@ reserve_job() {
     http_code=$(curl --silent --output /dev/null --write-out "%{http_code}" \
         --max-time 15 \
         -X POST \
-        -H "Authorization: Token token=\"${BK_AGENT_TOKEN}\"" \
+        -H "Authorization: Token ${BK_AGENT_TOKEN}" \
         -H "Content-Type: application/json" \
         --data "$payload" \
         "${BK_AGENTAPI_BASE_URL}/stacks/${BK_STACK_KEY}/reserve-jobs")
