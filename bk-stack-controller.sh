@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # bk-stack-controller.sh — Buildkite Stack Controller Daemon
+readonly CONTROLLER_VERSION="1.0.0"
 #
 # A systemd-managed service that polls the Buildkite Stacks API for scheduled
 # jobs and spawns isolated transient systemd units (one per job) to run them.
@@ -132,11 +133,16 @@ api_call() {
 register_stack() {
     log_info "Registering stack '${BK_STACK_KEY}' on queue '${BK_QUEUE}'"
 
+    local hostname
+    hostname=$(hostname -f 2>/dev/null || hostname)
+
     local payload
     payload=$(jq -n \
-        --arg key   "$BK_STACK_KEY" \
-        --arg queue "$BK_QUEUE" \
-        '{ key: $key, type: "systemd", queue_key: $queue }')
+        --arg key      "$BK_STACK_KEY" \
+        --arg queue    "$BK_QUEUE" \
+        --arg version  "$CONTROLLER_VERSION" \
+        --arg hostname "$hostname" \
+        '{ key: $key, type: "systemd", queue_key: $queue, metadata: { version: $version, hostname: $hostname } }')
 
     local response
     response=$(api_call POST "/stacks/register" --data "$payload") \
