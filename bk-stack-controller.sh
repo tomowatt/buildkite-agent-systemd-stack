@@ -97,7 +97,10 @@ check_prerequisites() {
     [[ -n "${BK_AGENT_TOKEN:-}"       ]] || die "BK_AGENT_TOKEN is not set"
     [[ -n "${BK_STACK_KEY:-}"         ]] || die "BK_STACK_KEY is not set"
     [[ -n "${BK_AGENTAPI_BASE_URL:-}" ]] || die "BK_AGENTAPI_BASE_URL is not set"
-    [[ -f "$BK_AGENT_TOKEN_FILE"      ]] || die "Agent token file not found: ${BK_AGENT_TOKEN_FILE}"
+    # BK_AGENT_TOKEN_FILE is read by systemd (as root) via LoadCredential when
+    # spawning agent units — the controller process itself never reads it, so we
+    # only check the variable is set, not that the file is accessible here.
+    [[ -n "${BK_AGENT_TOKEN_FILE:-}"  ]] || die "BK_AGENT_TOKEN_FILE is not set"
 
     mkdir -p "$BK_WORK_DIR"
     log_info "Prerequisites OK"
