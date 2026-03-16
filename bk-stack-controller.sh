@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
 # bk-stack-controller.sh — Buildkite Stack Controller Daemon
-readonly CONTROLLER_VERSION="1.0.0"
 #
 # A systemd-managed service that polls the Buildkite Stacks API for scheduled
 # jobs and spawns isolated transient systemd units (one per job) to run them.
@@ -9,6 +8,9 @@ readonly CONTROLLER_VERSION="1.0.0"
 # USAGE
 #   Run as a systemd service (see bk-stack-controller.service).
 #   Do not invoke directly in production.
+#
+#   Self-update (run as root):
+#     sudo bk-stack-controller.sh --update
 #
 # ENVIRONMENT (via EnvironmentFile or systemd drop-in)
 #   Required:
@@ -34,7 +36,11 @@ readonly CONTROLLER_VERSION="1.0.0"
 #     BK_WORK_DIR             Scratch directory for agent workspaces
 #                             (default: /var/lib/bk-stack/work)
 #     BK_LOG_LEVEL            debug | info | warn | error (default: info)
+#     CONTROLLER_UPDATE_URL   URL to fetch updates from (optional override)
 # =============================================================================
+
+readonly CONTROLLER_VERSION="1.0.0"
+readonly CONTROLLER_UPDATE_URL="${CONTROLLER_UPDATE_URL:-https://raw.githubusercontent.com/tomowatt/buildkite-agent-systemd-stack/main/bk-stack-controller.sh}"
 
 set -euo pipefail
 
@@ -376,10 +382,6 @@ wait_for_agents() {
     log_info "All agent units finished"
 }
 
-# =============================================================================
-# Main polling loop
-# =============================================================================
-
 poll_once() {
     # Respect dispatch_paused
     if dispatch_paused; then
@@ -440,10 +442,78 @@ poll_once() {
     [[ "$processed" -gt 0 ]] && log_info "Spawned ${processed} agent unit(s) this cycle"
 }
 
+# =============================================================================
+# Self-update
+# =============================================================================
+
+# Download, validate, and replace the running script.
+# Must be run as root; the service user cannot write to /usr/local/bin.
+do_self_update() {
+    [[ "$EUID" -eq 0 ]] || die "--update must be run as root (try: sudo $0 --update)"
+
+    echo "Fetching latest controller from ${CONTROLLER_UPDATE_URL} ..."
+
+    local tmp
+    tmp=$(mktemp /tmp/bk-stack-controller-XXXXXX.sh)
+    # shellcheck disable=SC2064
+    trap "rm -f '$tmp'" EXIT
+
+    curl --fail --location --max-time 30 \
+        --output "$tmp" \
+        "$CONTROLLER_UPDATE_URL" \
+        || die "Download failed"
+
+    bash -n "$tmp" || die "Downloaded script failed syntax check — aborting update"
+
+    local new_version
+    new_version=$(grep -m1 '^readonly CONTROLLER_VERSION=' "$tmp" | cut -d'"' -f2)
+
+    if [[ -z "$new_version" ]]; then
+        die "Could not determine version of downloaded script — aborting update"
+    fi
+
+    if [[ "$new_version" == "$CONTROLLER_VERSION" ]]; then
+        echo "Already at version ${CONTROLLER_VERSION} — nothing to do."
+        exit 0
+    fi
+
+    local script_path
+    script_path=$(readlink -f "$0")
+
+    install -m 755 -o root -g root "$tmp" "$script_path"
+
+    echo "Updated: v${CONTROLLER_VERSION} → v${new_version}"
+    echo "Restart the service to apply: sudo systemctl restart bk-stack-controller"
+}
+
+# On startup: fetch the remote version string and warn if a newer version exists.
+# Non-fatal — a network error just skips the check.
+check_for_update() {
+    local remote_version
+    remote_version=$(curl --silent --fail --max-time 10 "$CONTROLLER_UPDATE_URL" 2>/dev/null \
+        | grep -m1 '^readonly CONTROLLER_VERSION=' | cut -d'"' -f2) || return 0
+
+    [[ -z "$remote_version" ]] && return 0
+    [[ "$remote_version" == "$CONTROLLER_VERSION" ]] && return 0
+
+    log_warn "Update available: v${remote_version} (running v${CONTROLLER_VERSION})"
+    log_warn "To update: sudo bk-stack-controller.sh --update && sudo systemctl restart bk-stack-controller"
+}
+
+# =============================================================================
+# Main polling loop
+# =============================================================================
+
 main() {
-    log_info "bk-stack-controller starting (stack=${BK_STACK_KEY} queue=${BK_QUEUE})"
+    if [[ "${1:-}" == "--update" ]]; then
+        do_self_update
+        exit 0
+    fi
+
+    log_info "bk-stack-controller starting (stack=${BK_STACK_KEY} queue=${BK_QUEUE}) v${CONTROLLER_VERSION}"
 
     check_prerequisites
+    check_for_update
 
     trap handle_shutdown SIGTERM SIGINT
 
