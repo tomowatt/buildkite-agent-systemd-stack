@@ -142,7 +142,7 @@ register_stack() {
         --arg queue    "$BK_QUEUE" \
         --arg version  "$CONTROLLER_VERSION" \
         --arg hostname "$hostname" \
-        '{ key: $key, type: "systemd", queue_key: $queue, metadata: { version: $version, hostname: $hostname } }')
+        '{ key: $key, type: "custom", queue_key: $queue, metadata: { version: $version, hostname: $hostname } }')
 
     local response
     response=$(api_call POST "/stacks/register" --data "$payload") \
