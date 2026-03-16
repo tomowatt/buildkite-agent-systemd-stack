@@ -1,0 +1,66 @@
+# =============================================================================
+# bk-stack-controller.service
+#
+# Install to: /etc/systemd/system/bk-stack-controller.service
+#
+# Then:
+#   systemctl daemon-reload
+#   systemctl enable --now bk-stack-controller
+# =============================================================================
+
+[Unit]
+Description=Buildkite Stack Controller
+Documentation=https://buildkite.com/docs/apis/agent-api/stacks
+After=network-online.target
+Wants=network-online.target
+
+# Restart if the script crashes, but not on clean exit (exit code 0)
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/bk-stack-controller.sh
+
+# --- Credentials & config ---------------------------------------------------
+# Sensitive values live here, readable only by root + this service's user.
+# See bk-stack-controller.env.example for the full list of variables.
+EnvironmentFile=/etc/bk-stack/controller.env
+
+# OPTIONAL — SSH method A only.
+# Remove this line if you chose SSH method B (shared socket) or C (none).
+# If the key file does not exist, systemd will refuse to start this service.
+# The installer generates this file with the correct setting for your chosen
+# SSH method; this static template defaults to method A.
+LoadCredential=ssh-key:/etc/bk-stack/secrets/id_ed25519
+
+# --- User -------------------------------------------------------------------
+User=bk-stack
+Group=bk-stack
+
+# The controller needs to call systemd-run, which requires elevated privilege.
+# AmbientCapabilities lets it do so without running as root.
+AmbientCapabilities=CAP_SYS_ADMIN
+CapabilityBoundingSet=CAP_SYS_ADMIN
+
+# --- Filesystem hardening ---------------------------------------------------
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+
+# Writable paths the controller actually needs
+ReadWritePaths=/var/lib/bk-stack /var/cache/bk-cache /var/cache/bk-git-mirrors
+
+# --- Logging ----------------------------------------------------------------
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bk-stack-controller
+
+# --- Restart policy ---------------------------------------------------------
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
