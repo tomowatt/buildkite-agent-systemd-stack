@@ -159,9 +159,15 @@ register_stack() {
 }
 
 # Fetch pending scheduled jobs for this stack.
-# Returns raw JSON array.
+# Returns a bare JSON array regardless of whether the API wraps it.
 get_scheduled_jobs() {
-    api_call GET "/stacks/${BK_STACK_KEY}/scheduled-jobs" 2>/dev/null || echo "[]"
+    local raw
+    raw=$(api_call GET "/stacks/${BK_STACK_KEY}/scheduled-jobs" 2>/dev/null) || { echo "[]"; return 0; }
+
+    # If the response is already a bare array, return it as-is.
+    # If it's a wrapped object, try common envelope keys.
+    echo "$raw" | jq -c 'if type == "array" then . else (.jobs // .scheduled_jobs // .data // []) end' \
+        2>/dev/null || { log_warn "Unexpected scheduled-jobs response: ${raw}"; echo "[]"; }
 }
 
 # Atomically reserve a job so no other stack instance claims it.
@@ -220,9 +226,11 @@ unit_name() {
 }
 
 # Count currently running agent units.
+# Uses awk instead of wc -l to avoid counting blank or summary lines that
+# some systemd versions emit even with --no-legend.
 running_agent_count() {
     systemctl list-units --no-legend --state=active,activating 'bk-agent-*.service' \
-        | wc -l
+        | awk '/bk-agent-/{n++} END{print n+0}'
 }
 
 # Build the systemd-run invocation for a single job, then execute it.
