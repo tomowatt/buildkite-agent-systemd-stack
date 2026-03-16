@@ -138,8 +138,9 @@ register_stack() {
         --arg queue "$BK_QUEUE" \
         '{ stack_key: $key, queue: $queue }')
 
-    api_call POST "/stacks/register" --data "$payload" > /dev/null \
-        || die "Failed to register stack"
+    local response
+    response=$(api_call POST "/stacks/register" --data "$payload") \
+        || die "Failed to register stack. API response: ${response:-<empty>}"
 
     STACK_REGISTERED=1
     log_info "Stack registered"

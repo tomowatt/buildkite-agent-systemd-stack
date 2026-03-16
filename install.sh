@@ -220,6 +220,41 @@ install_dependencies() {
 # Interactive prompt helpers
 # =============================================================================
 
+# prompt_path <var_name> <display_name> <description> <default>
+# Like prompt, but rejects values that are not absolute paths.
+prompt_path() {
+    local var="$1" display="$2" description="$3" default="$4"
+
+    if [[ "$UNATTENDED" -eq 1 ]]; then
+        local val="${!var:-$default}"
+        [[ "$val" == /* ]] || die "${var} must be an absolute path, got: ${val}"
+        CFG[$var]="$val"
+        return
+    fi
+
+    echo
+    echo "  ${BOLD}${display}${RESET}"
+    echo "  ${DIM}${description}${RESET}"
+    [[ -n "$default" ]] && echo "  ${DIM}Default: ${default}${RESET}"
+
+    local value
+    while true; do
+        read -r -p "  ▸ " value
+        [[ -z "$value" && -n "$default" ]] && value="$default"
+        if [[ -z "$value" ]]; then
+            print_warn "This field is required."
+            continue
+        fi
+        if [[ "$value" != /* ]]; then
+            print_warn "Path must be absolute (start with /). Got: ${value}"
+            continue
+        fi
+        break
+    done
+
+    CFG[$var]="$value"
+}
+
 # prompt <var_name> <display_name> <description> <default> [secret]
 # Reads a value interactively (or from env in unattended mode) and stores
 # it in the CFG associative array.
@@ -334,7 +369,7 @@ collect_queue_config() {
 collect_paths_config() {
     print_section "Paths & shared directories"
 
-    prompt "BK_WORK_DIR" \
+    prompt_path "BK_WORK_DIR" \
         "Agent workspace directory" \
         "Root directory for per-job build workspaces. Each job gets its own subdirectory here." \
         "$WORK_DIR"
@@ -344,7 +379,7 @@ collect_paths_config() {
         "y"
 
     if [[ "${CFG[use_git_mirrors]}" == "y" ]]; then
-        prompt "BK_GIT_MIRRORS_PATH" \
+        prompt_path "BK_GIT_MIRRORS_PATH" \
             "Git mirrors path" \
             "Directory for shared bare-repo git mirrors. Agents clone with --reference pointing here." \
             "$GIT_MIRRORS_DIR"
@@ -357,7 +392,7 @@ collect_paths_config() {
         "y"
 
     if [[ "${CFG[use_cache]}" == "y" ]]; then
-        prompt "BK_CACHE_PATH" \
+        prompt_path "BK_CACHE_PATH" \
             "Dependency cache path" \
             "Root directory for shared dependency caches (npm, pip, Go modules, etc.). Bind-mounted read-only into each agent unit." \
             "$CACHE_DIR"
@@ -393,7 +428,7 @@ collect_ssh_config() {
 
     case "${ssh_choice^^}" in
         A)
-            prompt "BK_CREDENTIAL_SSH_KEY" \
+            prompt_path "BK_CREDENTIAL_SSH_KEY" \
                 "SSH private key path" \
                 "Absolute path to the SSH private key file on this host. It will be injected into each agent unit via systemd LoadCredential." \
                 "${SECRETS_DIR}/id_ed25519"
@@ -411,7 +446,7 @@ collect_ssh_config() {
             fi
             ;;
         B)
-            prompt "BK_SSH_AGENT_SOCK" \
+            prompt_path "BK_SSH_AGENT_SOCK" \
                 "ssh-agent socket path" \
                 "Path to the shared ssh-agent Unix socket." \
                 "/run/bk-ssh-agent.sock"
