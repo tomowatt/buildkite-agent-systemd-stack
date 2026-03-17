@@ -163,20 +163,19 @@ register_stack() {
     log_info "Stack registered"
 }
 
-# Fetch pending scheduled jobs for this stack.
-# Returns a bare JSON array regardless of whether the API wraps it.
+# Fetch scheduled jobs for this stack.
+# Usage: get_scheduled_jobs <limit>
+# Prints the raw API response JSON on success, nothing on failure.
+# Returns 0 on success, 1 on API error.
 get_scheduled_jobs() {
+    local limit="${1:-${BK_MAX_AGENTS}}"
+    local path="/stacks/${BK_STACK_KEY}/scheduled-jobs?queue_key=${BK_QUEUE}&limit=${limit}"
     local raw
-    raw=$(api_call GET "/stacks/${BK_STACK_KEY}/scheduled-jobs" 2>/dev/null) || {
-        log_warn "Failed to fetch scheduled jobs (API error)"
-        echo "[]"
-        return 0
-    }
-
-    # If the response is already a bare array, return it as-is.
-    # If it's a wrapped object, try common envelope keys.
-    echo "$raw" | jq -c 'if type == "array" then . else (.jobs // .scheduled_jobs // .data // []) end' \
-        2>/dev/null || { log_warn "Unexpected scheduled-jobs response: ${raw}"; echo "[]"; }
+    if ! raw=$(api_call GET "$path" 2>/dev/null); then
+        log_warn "Failed to fetch scheduled jobs — API response: ${raw:-<empty>}"
+        return 1
+    fi
+    echo "$raw"
 }
 
 # Atomically reserve a job so no other stack instance claims it.
@@ -216,14 +215,6 @@ notify_job() {
         --data "$payload" > /dev/null 2>&1 || true  # non-fatal
 }
 
-# Check if dispatch is paused for this stack's queue.
-# Returns 0 (paused) or 1 (not paused).
-dispatch_paused() {
-    local result
-    result=$(api_call GET "/stacks/${BK_STACK_KEY}" 2>/dev/null \
-        | jq -r '.cluster_queue.dispatch_paused // false')
-    [[ "$result" == "true" ]]
-}
 
 # =============================================================================
 # Agent unit management
@@ -400,24 +391,29 @@ wait_for_agents() {
 }
 
 poll_once() {
-    # Respect dispatch_paused
-    if dispatch_paused; then
-        log_info "Dispatch is paused for queue '${BK_QUEUE}' — skipping poll"
-        return
-    fi
-
     local running
     running=$(running_agent_count)
     log_debug "Running agents: ${running}/${BK_MAX_AGENTS}"
 
     if [[ "$running" -ge "$BK_MAX_AGENTS" ]]; then
         log_debug "At capacity (${running}/${BK_MAX_AGENTS}) — skipping poll"
-        return
+        return 0
     fi
 
     local slots=$(( BK_MAX_AGENTS - running ))
+
+    # Single API call: scheduled jobs + dispatch state in one response
+    local response
+    response=$(get_scheduled_jobs "$slots") || return 0
+
+    # Respect dispatch_paused from the response
+    if [[ "$(echo "$response" | jq -r '.cluster_queue.dispatch_paused // false')" == "true" ]]; then
+        log_info "Dispatch is paused for queue '${BK_QUEUE}' — skipping poll"
+        return 0
+    fi
+
     local jobs_json
-    jobs_json=$(get_scheduled_jobs)
+    jobs_json=$(echo "$response" | jq -c '.jobs // []')
 
     local job_count
     job_count=$(echo "$jobs_json" | jq 'length')
