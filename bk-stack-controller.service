@@ -38,11 +38,6 @@ LoadCredential=ssh-key:/etc/bk-stack/secrets/id_ed25519
 User=bk-stack
 Group=bk-stack
 
-# The controller needs to call systemd-run, which requires elevated privilege.
-# AmbientCapabilities lets it do so without running as root.
-AmbientCapabilities=CAP_SYS_ADMIN
-CapabilityBoundingSet=CAP_SYS_ADMIN
-
 # --- Filesystem hardening ---------------------------------------------------
 ProtectSystem=strict
 ProtectHome=yes

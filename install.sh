@@ -37,6 +37,7 @@ readonly SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 readonly CONTROLLER_SCRIPT="${INSTALL_DIR}/bk-stack-controller.sh"
 readonly ENV_FILE="${CONFIG_DIR}/controller.env"
 readonly SERVICE_USER="bk-stack"
+readonly POLKIT_RULES_FILE="/etc/polkit-1/rules.d/50-bk-stack.rules"
 
 # GitHub raw URL for the controller script (update to match your repo)
 readonly CONTROLLER_SCRIPT_URL="${CONTROLLER_SCRIPT_URL:-https://raw.githubusercontent.com/tomowatt/buildkite-agent-systemd-stack/main/bk-stack-controller.sh}"
@@ -520,6 +521,38 @@ review_config() {
 # Installation steps
 # =============================================================================
 
+install_polkit_rule() {
+    print_section "Installing polkit rule"
+
+    local rules_dir
+    rules_dir=$(dirname "$POLKIT_RULES_FILE")
+
+    if [[ ! -d "$rules_dir" ]]; then
+        print_warn "polkit rules directory ${rules_dir} not found — skipping"
+        print_warn "You may need to grant '${SERVICE_USER}' permission to manage units manually"
+        return 0
+    fi
+
+    local tmp_rules
+    tmp_rules=$(mktemp)
+
+    cat > "$tmp_rules" << 'RULESEOF'
+// Allow the bk-stack service user to start transient systemd units via
+// systemd-run without interactive authentication.
+polkit.addRule(function(action, subject) {
+    if (action.id === "org.freedesktop.systemd1.manage-units" &&
+        subject.user === "bk-stack") {
+        return polkit.Result.YES;
+    }
+});
+RULESEOF
+
+    run install -m 644 -o root -g root "$tmp_rules" "$POLKIT_RULES_FILE"
+    rm -f "$tmp_rules"
+
+    print_success "polkit rule written to ${POLKIT_RULES_FILE}"
+}
+
 create_user() {
     print_section "Creating service user"
     if id "$SERVICE_USER" &>/dev/null; then
@@ -772,10 +805,6 @@ ${load_credential}
 User=${SERVICE_USER}
 Group=${SERVICE_USER}
 
-# The controller needs CAP_SYS_ADMIN to call systemd-run as other users.
-AmbientCapabilities=CAP_SYS_ADMIN
-CapabilityBoundingSet=CAP_SYS_ADMIN
-
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
@@ -841,7 +870,7 @@ uninstall() {
         run systemctl disable "$SERVICE_NAME"
     fi
 
-    for f in "$SERVICE_FILE" "$CONTROLLER_SCRIPT"; do
+    for f in "$SERVICE_FILE" "$CONTROLLER_SCRIPT" "$POLKIT_RULES_FILE"; do
         if [[ -f "$f" ]]; then
             run rm -f "$f"
             print_step "Removed $f"
@@ -925,6 +954,7 @@ main() {
     review_config
 
     # Install
+    install_polkit_rule
     create_user
     create_directories
     write_agent_token_file
