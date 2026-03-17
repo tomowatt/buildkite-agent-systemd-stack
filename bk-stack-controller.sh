@@ -357,7 +357,7 @@ reap_stale_units() {
 
         if [[ "$monotonic" -gt 0 ]]; then
             local now_mono
-            now_mono=$(awk '{print int($1 * 1000000)}' /proc/uptime)
+            now_mono=$(awk '{printf "%d\n", $1 * 1000000}' /proc/uptime)
             age_sec=$(( (now_mono - monotonic) / 1000000 ))
 
             if [[ "$age_sec" -gt "$BK_JOB_TIMEOUT" ]]; then
