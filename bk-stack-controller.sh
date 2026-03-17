@@ -367,7 +367,11 @@ spawn_agent() {
     fi
     # Load the SSH key (injected via LoadCredential) into a per-job ssh-agent.
     if [[ -f "$CREDENTIALS_DIRECTORY/ssh-key" ]]; then
-        eval "$(ssh-agent -s)"
+        _agent_out=$(ssh-agent -s)
+        SSH_AUTH_SOCK=$(printf '%s' "$_agent_out" | grep -oP '(?<=SSH_AUTH_SOCK=)[^;]+')
+        SSH_AGENT_PID=$(printf '%s' "$_agent_out" | grep -oP '(?<=SSH_AGENT_PID=)[^;]+')
+        export SSH_AUTH_SOCK SSH_AGENT_PID
+        trap 'ssh-agent -k 2>/dev/null || true' EXIT
         ssh-add "$CREDENTIALS_DIRECTORY/ssh-key" 2>/dev/null || true
     fi
     BUILDKITE_AGENT_TOKEN=$(cat "$CREDENTIALS_DIRECTORY/agent-token") \
