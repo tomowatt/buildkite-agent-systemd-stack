@@ -360,7 +360,7 @@ spawn_agent() {
     printf 'bk-agent:x:%d:%d:Buildkite Agent:/tmp:/bin/sh\n' "$_uid" "$_gid" > /tmp/nss_passwd
     printf 'bk-agent:x:%d:\n' "$_gid" > /tmp/nss_group
     _nss=$(ldconfig -p 2>/dev/null | awk '/libnss_wrapper\.so/{print $NF; exit}')
-    if [[ -n "$_nss" ]]; then
+    if [[ "$_nss" =~ ^(/usr/lib|/lib)/ ]]; then
         export LD_PRELOAD="$_nss"
         export NSS_WRAPPER_PASSWD=/tmp/nss_passwd
         export NSS_WRAPPER_GROUP=/tmp/nss_group
