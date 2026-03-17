@@ -209,7 +209,7 @@ check_dependencies() {
     # OpenSSH calls fatal() when getpwuid() returns NULL for an unknown UID,
     # aborting the connection before auth is attempted. libnss-wrapper intercepts
     # the NSS lookup via LD_PRELOAD and returns a synthetic passwd entry.
-    if ! ldconfig -p 2>/dev/null | grep -q 'libnss_wrapper\.so\.'; then
+    if ! ldconfig -p 2>/dev/null | grep -q 'libnss_wrapper\.so'; then
         echo
         print_warn "libnss-wrapper not found — required for SSH/git inside agent units"
         print_info "Without it: OpenSSH fatals with 'No user exists for uid XXXXX'"
