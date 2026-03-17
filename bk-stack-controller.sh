@@ -123,7 +123,7 @@ check_prerequisites() {
     # Sticky bit (1777) prevents cross-UID lock file removal, so we use 0777.
     if [[ -n "${BK_GIT_MIRRORS_PATH:-}" && -d "${BK_GIT_MIRRORS_PATH}" ]]; then
         chmod 0777 "${BK_GIT_MIRRORS_PATH}" 2>/dev/null || true
-        find "${BK_GIT_MIRRORS_PATH}" -maxdepth 1 -name "*.clonelockf" -delete 2>/dev/null || true
+        find "${BK_GIT_MIRRORS_PATH}" -maxdepth 1 -type f -name "*.clonelockf" -delete 2>/dev/null || true
         log_debug "Git mirrors dir ready: ${BK_GIT_MIRRORS_PATH}"
     fi
 
