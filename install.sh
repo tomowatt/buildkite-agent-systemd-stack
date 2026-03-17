@@ -679,7 +679,9 @@ generate_ssh_key() {
         echo "  ${DIM}(dry-run — key not yet generated)${RESET}"
     fi
     echo
-    read -r -p "  Press Enter to continue once you've added the deploy key... "
+    if [[ "$UNATTENDED" -eq 0 ]]; then
+        read -r -p "  Press Enter to continue once you've added the deploy key... "
+    fi
 }
 
 install_controller_script() {

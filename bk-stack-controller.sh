@@ -119,10 +119,11 @@ check_prerequisites() {
     [[ "$BK_STACK_KEY" =~ ^[a-zA-Z0-9_-]+$ ]] || die "BK_STACK_KEY must contain only alphanumeric, dash, or underscore characters"
     [[ "$BK_QUEUE"     =~ ^[a-zA-Z0-9_-]+$ ]] || die "BK_QUEUE must contain only alphanumeric, dash, or underscore characters"
 
-    # Validate that arithmetic-used values are positive integers.
-    [[ "$BK_MAX_AGENTS"    =~ ^[0-9]+$ ]] || die "BK_MAX_AGENTS must be a positive integer"
-    [[ "$BK_POLL_INTERVAL" =~ ^[0-9]+$ ]] || die "BK_POLL_INTERVAL must be a positive integer"
-    [[ "$BK_JOB_TIMEOUT"   =~ ^[0-9]+$ ]] || die "BK_JOB_TIMEOUT must be a positive integer"
+    # Validate that arithmetic-used values are positive non-zero integers.
+    # Zero is semantically invalid: 0 agents, 0-second poll (busy-loop), 0-second timeout.
+    [[ "$BK_MAX_AGENTS"    =~ ^[1-9][0-9]*$ ]] || die "BK_MAX_AGENTS must be a positive integer (got: ${BK_MAX_AGENTS})"
+    [[ "$BK_POLL_INTERVAL" =~ ^[1-9][0-9]*$ ]] || die "BK_POLL_INTERVAL must be a positive integer (got: ${BK_POLL_INTERVAL})"
+    [[ "$BK_JOB_TIMEOUT"   =~ ^[1-9][0-9]*$ ]] || die "BK_JOB_TIMEOUT must be a positive integer (got: ${BK_JOB_TIMEOUT})"
 
     mkdir -p "$BK_WORK_DIR"
 
@@ -369,7 +370,7 @@ spawn_agent() {
     printf 'bk-agent:x:%d:%d:Buildkite Agent:/tmp:/bin/sh\n' "$_uid" "$_gid" > /tmp/nss_passwd
     printf 'bk-agent:x:%d:\n' "$_gid" > /tmp/nss_group
     _nss=$(ldconfig -p 2>/dev/null | awk '/libnss_wrapper\.so/{print $NF; exit}')
-    if [[ "$_nss" =~ ^(/usr/lib|/lib)/ ]]; then
+    if [[ "$_nss" =~ ^(/usr/lib|/usr/lib64|/lib|/lib64)/ ]]; then
         export LD_PRELOAD="$_nss"
         export NSS_WRAPPER_PASSWD=/tmp/nss_passwd
         export NSS_WRAPPER_GROUP=/tmp/nss_group
