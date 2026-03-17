@@ -404,7 +404,9 @@ poll_once() {
 
     # Single API call: scheduled jobs + dispatch state in one response
     local response
-    response=$(get_scheduled_jobs "$slots") || return 0
+    # Fetch up to BK_MAX_AGENTS candidates (more than slots) so reservation
+    # failures from competing instances don't leave slots unfilled.
+    response=$(get_scheduled_jobs "${BK_MAX_AGENTS}") || return 0
 
     # Respect dispatch_paused from the response
     if [[ "$(echo "$response" | jq -r '.cluster_queue.dispatch_paused // false')" == "true" ]]; then
