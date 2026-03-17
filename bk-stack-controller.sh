@@ -115,6 +115,15 @@ check_prerequisites() {
     # only check the variable is set, not that the file is accessible here.
     [[ -n "${BK_AGENT_TOKEN_FILE:-}"  ]] || die "BK_AGENT_TOKEN_FILE is not set"
 
+    # Validate that URL-interpolated values contain only safe characters.
+    [[ "$BK_STACK_KEY" =~ ^[a-zA-Z0-9_-]+$ ]] || die "BK_STACK_KEY must contain only alphanumeric, dash, or underscore characters"
+    [[ "$BK_QUEUE"     =~ ^[a-zA-Z0-9_-]+$ ]] || die "BK_QUEUE must contain only alphanumeric, dash, or underscore characters"
+
+    # Validate that arithmetic-used values are positive integers.
+    [[ "$BK_MAX_AGENTS"    =~ ^[0-9]+$ ]] || die "BK_MAX_AGENTS must be a positive integer"
+    [[ "$BK_POLL_INTERVAL" =~ ^[0-9]+$ ]] || die "BK_POLL_INTERVAL must be a positive integer"
+    [[ "$BK_JOB_TIMEOUT"   =~ ^[0-9]+$ ]] || die "BK_JOB_TIMEOUT must be a positive integer"
+
     mkdir -p "$BK_WORK_DIR"
 
     # Ensure git mirrors directory is world-writable without sticky bit.
