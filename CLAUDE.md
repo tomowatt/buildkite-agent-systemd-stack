@@ -40,19 +40,23 @@ To test the controller without a real Buildkite cluster, set the env vars manual
 
 ```
 install.sh
-  └─ writes /etc/bk-stack/controller.env        (mode 640, root:bk-stack)
-  └─ writes /etc/bk-stack/secrets/agent-token   (mode 400, root:root)
+  └─ writes /etc/polkit-1/rules.d/50-bk-stack.rules  (mode 644)
+  └─ writes /etc/bk-stack/controller.env              (mode 640, root:bk-stack)
+  └─ writes /etc/bk-stack/agent.cfg                   (mode 644, world-readable)
+  └─ writes /etc/bk-stack/secrets/agent-token         (mode 400, root:root)
   └─ writes /etc/systemd/system/bk-stack-controller.service
   └─ systemctl enable --now bk-stack-controller
 
 bk-stack-controller.sh (runs as bk-stack user)
-  └─ register_stack()     → POST /stacks/register
+  └─ register_stack()       → POST /stacks/register
+                              { key, type: "custom", queue_key, metadata: { version, hostname } }
   └─ poll loop every BK_POLL_INTERVAL seconds:
-       dispatch_paused?  → GET /stacks/{key}
-       get_scheduled_jobs → GET /stacks/{key}/scheduled-jobs
-       for each job (sorted by priority desc, up to available slots):
-         reserve_job()   → POST /stacks/{key}/reserve-jobs  (atomic, idempotent)
-         spawn_agent()   → systemd-run transient unit
+       get_scheduled_jobs() → GET /stacks/{key}/scheduled-jobs?queue_key=...&limit=BK_MAX_AGENTS
+                              response includes cluster_queue.dispatch_paused
+       reserve_jobs_batch() → PUT /stacks/{key}/scheduled-jobs/batch-reserve
+                              { job_uuids: [...], reservation_expiry_seconds: min(BK_JOB_TIMEOUT, 3600) }
+       for each reserved job (priority order, up to available slots):
+         spawn_agent()      → systemd-run transient unit
 ```
 
 ### Per-job isolation
@@ -62,6 +66,7 @@ Each job runs in a transient `bk-agent-<uuid>.service` unit with:
 - `PrivateTmp`, `PrivateDevices`, `ProtectHome`, `NoNewPrivileges`
 - `MemoryMax=4G`, `CPUQuota=200%`, `TasksMax=512`, `RuntimeMaxSec=<BK_JOB_TIMEOUT>`
 - Agent token injected via `LoadCredential=agent-token:<BK_AGENT_TOKEN_FILE>` — never in `Environment=` or on the command line
+- Agent config passed via `--config "$_BK_AGENT_CFG"` pointing to `/etc/bk-stack/agent.cfg` (mode 644, world-readable for the ephemeral UID)
 - The agent command is a `bash -c` wrapper that reads the token from `$CREDENTIALS_DIRECTORY/agent-token` before exec-ing `buildkite-agent start`
 
 ### Key design constraints
@@ -70,11 +75,21 @@ Each job runs in a transient `bk-agent-<uuid>.service` unit with:
 
 **Token security** — `BK_AGENT_TOKEN` is used by the controller for its own API calls (read from `EnvironmentFile`). For agent units, the token travels via `LoadCredential` referencing `/etc/bk-stack/secrets/agent-token` (file, mode 400) so it never appears in `systemctl show` output or `/proc/<pid>/cmdline`.
 
-**Multi-instance deduplication** — `reserve_job()` POSTs to the reserve-jobs endpoint before spawning. A non-200 response means another controller instance claimed the job; skip it.
+**polkit rule** — `systemd-run` uses D-Bus to talk to PID 1; polkit controls access via `org.freedesktop.systemd1.manage-units`. `/etc/polkit-1/rules.d/50-bk-stack.rules` grants the `bk-stack` user unconditional YES on that action. `CAP_SYS_ADMIN` is not used — polkit checks UID, not Linux capabilities.
+
+**Agent config file** — `/etc/bk-stack/agent.cfg` is world-readable (644) so the `DynamicUser` ephemeral UID can read it. It must NOT contain the agent token. Dynamic per-job values (`_BK_QUEUE`, `_BK_AGENT_CFG`, `BUILDKITE_AGENT_ACQUIRE_JOB`) are injected as `Environment=` properties on the unit.
+
+**Batch reservation** — `reserve_jobs_batch()` issues a single `PUT` to `batch-reserve` for all candidate UUIDs. The response's `reserved` array is filtered to determine which jobs to spawn. Jobs not in `reserved` were claimed by another controller instance.
+
+**Single API call per poll cycle** — `get_scheduled_jobs()` returns `dispatch_paused` in `cluster_queue.dispatch_paused` alongside the jobs array, eliminating a separate status call.
+
+**Multi-instance safety** — `reserve_jobs_batch()` is atomic on the server side. Only one controller instance will receive a given UUID in its `reserved` response.
 
 **Graceful shutdown** — `SIGTERM` sets a flag; the poll loop exits cleanly, then `wait_for_agents()` blocks until all in-flight units finish (or `BK_JOB_TIMEOUT` elapses).
 
 **Interruptible sleep** — `sleep N & wait $!` so signals wake the controller immediately rather than waiting out the full poll interval.
+
+**Self-update** — `sudo bk-stack-controller.sh --update` downloads the latest script, syntax-checks it, compares versions, and replaces the binary via `install`. The `--update` path runs before the EnvironmentFile is loaded; all required vars have empty-string defaults to satisfy `set -u`.
 
 ### SSH credential options (chosen at install time)
 
@@ -84,10 +99,9 @@ Each job runs in a transient `bk-agent-<uuid>.service` unit with:
 
 ## Known gaps
 
-- `CONTROLLER_SCRIPT_URL` in `install.sh` contains a `YOUR_ORG/YOUR_REPO` placeholder — update before publishing.
 - No agent environment hook is provided for wiring `$CREDENTIALS_DIRECTORY/ssh-key` into ssh-agent (SSH method A); this must be supplied separately.
 - No retry/backoff on API calls — transient failures are retried at the next poll interval.
-- `dispatch_paused` check makes an extra API call per cycle; could be folded into the scheduled-jobs response.
+- No pagination for the scheduled-jobs response; `limit=BK_MAX_AGENTS` is used (well within the API's 1000-job maximum).
 
 ## systemd version requirement
 

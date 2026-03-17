@@ -74,6 +74,16 @@ The most commonly adjusted variables:
 | `BK_POLL_INTERVAL` | `5` | Seconds between Stacks API polls |
 | `BK_JOB_TIMEOUT` | `3600` | Max seconds a job unit may run before being killed |
 | `BK_GIT_MIRRORS_PATH` | — | Shared bare-repo git mirror cache (speeds up clones) |
+| `BK_AGENT_CONFIG_FILE` | `/etc/bk-stack/agent.cfg` | Agent config file passed to each job unit (world-readable; do not put the token here) |
 | `BK_LOG_LEVEL` | `info` | `debug` \| `info` \| `warn` \| `error` |
 
 See [`controller.env.example`](controller.env.example) for the full list, including SSH credential options.
+
+## Self-update
+
+```bash
+sudo bk-stack-controller.sh --update
+sudo systemctl restart bk-stack-controller
+```
+
+The controller checks for a newer version on startup and logs a warning if one is available.
