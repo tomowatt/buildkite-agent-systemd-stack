@@ -196,11 +196,15 @@ check_dependencies() {
             print_info "  yum install -y ${missing[*]}"
         fi
         echo
-        read -r -p "  Attempt automatic installation? [y/N] " auto_install
-        if [[ "${auto_install,,}" == "y" ]]; then
+        if [[ "$UNATTENDED" -eq 1 ]]; then
             install_dependencies "${missing[@]}"
         else
-            die "Please install missing dependencies and re-run."
+            read -r -p "  Attempt automatic installation? [y/N] " auto_install
+            if [[ "${auto_install,,}" == "y" ]]; then
+                install_dependencies "${missing[@]}"
+            else
+                die "Please install missing dependencies and re-run."
+            fi
         fi
     fi
 
