@@ -592,11 +592,13 @@ create_directories() {
     # Workspace dir owned by bk-stack so the controller can create subdirs
     run chown "${SERVICE_USER}:${SERVICE_USER}" "${CFG[BK_WORK_DIR]}"
 
-    # Git mirrors must be world-writable (sticky bit) so DynamicUser agent
-    # units (ephemeral random UIDs) can create and update mirror directories.
+    # Git mirrors must be world-writable (no sticky bit) so DynamicUser agent
+    # units (ephemeral random UIDs) can create, update, and remove lock files
+    # from mirror directories. Sticky bit would prevent one UID from deleting
+    # stale .clonelockf files created by a different DynamicUser UID.
     if [[ -n "${CFG[BK_GIT_MIRRORS_PATH]:-}" ]]; then
         run chown "${SERVICE_USER}:${SERVICE_USER}" "${CFG[BK_GIT_MIRRORS_PATH]}"
-        run chmod 1777 "${CFG[BK_GIT_MIRRORS_PATH]}"
+        run chmod 0777 "${CFG[BK_GIT_MIRRORS_PATH]}"  # no sticky: DynamicUsers must be able to remove stale lock files
     fi
     [[ -n "${CFG[BK_CACHE_PATH]:-}" ]] && run chown "${SERVICE_USER}:${SERVICE_USER}" "${CFG[BK_CACHE_PATH]}"
 }

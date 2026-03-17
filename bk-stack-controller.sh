@@ -116,6 +116,17 @@ check_prerequisites() {
     [[ -n "${BK_AGENT_TOKEN_FILE:-}"  ]] || die "BK_AGENT_TOKEN_FILE is not set"
 
     mkdir -p "$BK_WORK_DIR"
+
+    # Ensure git mirrors directory is world-writable without sticky bit.
+    # DynamicUser agent units (ephemeral random UIDs) need to create mirror
+    # dirs AND delete stale .clonelockf files left by previous unit UIDs.
+    # Sticky bit (1777) prevents cross-UID lock file removal, so we use 0777.
+    if [[ -n "${BK_GIT_MIRRORS_PATH:-}" && -d "${BK_GIT_MIRRORS_PATH}" ]]; then
+        chmod 0777 "${BK_GIT_MIRRORS_PATH}" 2>/dev/null || true
+        find "${BK_GIT_MIRRORS_PATH}" -maxdepth 1 -name "*.clonelockf" -delete 2>/dev/null || true
+        log_debug "Git mirrors dir ready: ${BK_GIT_MIRRORS_PATH}"
+    fi
+
     log_info "Prerequisites OK"
 }
 
