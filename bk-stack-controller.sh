@@ -178,30 +178,31 @@ get_scheduled_jobs() {
     echo "$raw"
 }
 
-# Atomically reserve a job so no other stack instance claims it.
-# Usage: reserve_job <job_uuid>
-# Returns 0 on success, 1 if the job was already taken.
-reserve_job() {
-    local job_uuid="$1"
+# Batch-reserve a set of jobs so no other stack instance claims them.
+# Usage: reserve_jobs_batch <uuids_json>
+#   uuids_json — JSON array of UUID strings to reserve
+# Prints a JSON array of successfully reserved UUIDs.
+# Returns 0 on success, 0 with empty array on API error (non-fatal).
+reserve_jobs_batch() {
+    local uuids_json="$1"
+    local expiry=$(( BK_JOB_TIMEOUT < 3600 ? BK_JOB_TIMEOUT : 3600 ))
+
     local payload
-    payload=$(jq -n --arg id "$job_uuid" '{ job_id: $id }')
+    payload=$(jq -n \
+        --argjson uuids   "$uuids_json" \
+        --argjson expiry  "$expiry" \
+        '{ job_uuids: $uuids, reservation_expiry_seconds: $expiry }')
 
-    local http_code
-    http_code=$(curl --silent --output /dev/null --write-out "%{http_code}" \
-        --max-time 15 \
-        -X POST \
-        -H "Authorization: Token ${BK_AGENT_TOKEN}" \
-        -H "Content-Type: application/json" \
-        --data "$payload" \
-        "${BK_AGENTAPI_BASE_URL}/stacks/${BK_STACK_KEY}/reserve-jobs")
-
-    if [[ "$http_code" == "200" ]]; then
-        log_info "Reserved job ${job_uuid}"
+    local response
+    if ! response=$(api_call PUT \
+            "/stacks/${BK_STACK_KEY}/scheduled-jobs/batch-reserve" \
+            --data "$payload" 2>/dev/null); then
+        log_warn "Batch reserve failed — API response: ${response:-<empty>}"
+        echo "[]"
         return 0
-    else
-        log_warn "Failed to reserve job ${job_uuid} (HTTP ${http_code})"
-        return 1
     fi
+
+    echo "$response" | jq -c '.reserved // []'
 }
 
 # Send a status notification back to the Buildkite build page.
@@ -427,34 +428,50 @@ poll_once() {
 
     log_info "Scheduled jobs: ${job_count} available, ${slots} slot(s) open"
 
-    # Sort by priority descending, then iterate up to available slots
-    local processed=0
+    # --- Pass 1: validate UUIDs and build candidate list (priority order) ---
+    local candidate_uuids='[]'
+    local job_map='{}'
+
     while IFS= read -r job; do
-        [[ "$processed" -ge "$slots" ]] && break
+        [[ "$(echo "$candidate_uuids" | jq 'length')" -ge "$slots" ]] && break
 
-        local job_uuid priority query_rules
-        job_uuid=$(echo    "$job" | jq -r '.id' | tr '[:upper:]' '[:lower:]')
-        priority=$(echo    "$job" | jq -r '.priority // 0')
-        query_rules=$(echo "$job" | jq -c '.agent_query_rules // []')
+        local job_uuid
+        job_uuid=$(echo "$job" | jq -r '.id' | tr '[:upper:]' '[:lower:]')
 
-        # Validate UUID format before using in unit names and filesystem paths
         if [[ ! "$job_uuid" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$ ]]; then
             log_warn "Skipping job with invalid id format: ${job_uuid}"
             continue
         fi
 
-        log_debug "Considering job ${job_uuid} (priority=${priority})"
+        candidate_uuids=$(echo "$candidate_uuids" | jq -c --arg u "$job_uuid" '. + [$u]')
+        job_map=$(echo "$job_map" | jq -c --arg u "$job_uuid" --argjson job "$job" '. + {($u): $job}')
 
-        # Attempt to reserve — skip if another instance beat us to it
-        if ! reserve_job "$job_uuid"; then
-            log_debug "Job ${job_uuid} already claimed — skipping"
-            continue
-        fi
+    done < <(echo "$jobs_json" | jq -c 'sort_by(-(.priority // 0)) | .[]')
+
+    local candidate_count
+    candidate_count=$(echo "$candidate_uuids" | jq 'length')
+    log_debug "Attempting to reserve ${candidate_count} job(s)"
+
+    # --- Single batch reserve call ---
+    local reserved_json
+    reserved_json=$(reserve_jobs_batch "$candidate_uuids")
+
+    local reserved_count
+    reserved_count=$(echo "$reserved_json" | jq 'length')
+    log_info "Reserved ${reserved_count}/${candidate_count} job(s)"
+
+    # --- Pass 2: spawn agents for reserved jobs (priority order preserved) ---
+    local processed=0
+    while IFS= read -r job_uuid; do
+        local query_rules
+        query_rules=$(echo "$job_map" | jq -c --arg u "$job_uuid" '.[$u].agent_query_rules // []')
 
         spawn_agent "$job_uuid" "$query_rules"
         (( processed++ )) || true
 
-    done < <(echo "$jobs_json" | jq -c 'sort_by(-(.priority // 0)) | .[]')
+    done < <(echo "$candidate_uuids" | \
+        jq -r --argjson reserved "$reserved_json" \
+        '.[] | select(. as $u | $reserved | index($u) != null)')
 
     if [[ "$processed" -gt 0 ]]; then
         log_info "Spawned ${processed} agent unit(s) this cycle"
