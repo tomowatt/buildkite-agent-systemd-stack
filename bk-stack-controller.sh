@@ -48,6 +48,11 @@ set -euo pipefail
 # Defaults
 # =============================================================================
 
+# Required — empty defaults satisfy set -u; check_prerequisites validates non-empty
+BK_AGENT_TOKEN="${BK_AGENT_TOKEN:-}"
+BK_STACK_KEY="${BK_STACK_KEY:-}"
+BK_AGENTAPI_BASE_URL="${BK_AGENTAPI_BASE_URL:-}"
+
 BK_QUEUE="${BK_QUEUE:-default}"
 BK_MAX_AGENTS="${BK_MAX_AGENTS:-4}"
 BK_POLL_INTERVAL="${BK_POLL_INTERVAL:-5}"
@@ -162,7 +167,11 @@ register_stack() {
 # Returns a bare JSON array regardless of whether the API wraps it.
 get_scheduled_jobs() {
     local raw
-    raw=$(api_call GET "/stacks/${BK_STACK_KEY}/scheduled-jobs" 2>/dev/null) || { echo "[]"; return 0; }
+    raw=$(api_call GET "/stacks/${BK_STACK_KEY}/scheduled-jobs" 2>/dev/null) || {
+        log_warn "Failed to fetch scheduled jobs (API error)"
+        echo "[]"
+        return 0
+    }
 
     # If the response is already a bare array, return it as-is.
     # If it's a wrapped object, try common envelope keys.
@@ -188,10 +197,10 @@ reserve_job() {
         "${BK_AGENTAPI_BASE_URL}/stacks/${BK_STACK_KEY}/reserve-jobs")
 
     if [[ "$http_code" == "200" ]]; then
-        log_debug "Reserved job ${job_uuid}"
+        log_info "Reserved job ${job_uuid}"
         return 0
     else
-        log_debug "Job ${job_uuid} already reserved (HTTP ${http_code})"
+        log_warn "Failed to reserve job ${job_uuid} (HTTP ${http_code})"
         return 1
     fi
 }
@@ -412,11 +421,13 @@ poll_once() {
 
     local job_count
     job_count=$(echo "$jobs_json" | jq 'length')
-    log_debug "Scheduled jobs available: ${job_count}"
 
     if [[ "$job_count" -eq 0 ]]; then
-        return
+        log_debug "No scheduled jobs"
+        return 0
     fi
+
+    log_info "Scheduled jobs: ${job_count} available, ${slots} slot(s) open"
 
     # Sort by priority descending, then iterate up to available slots
     local processed=0
@@ -445,9 +456,11 @@ poll_once() {
         spawn_agent "$job_uuid" "$query_rules"
         (( processed++ )) || true
 
-    done < <(echo "$jobs_json" | jq -c 'sort_by(-.priority) | .[]')
+    done < <(echo "$jobs_json" | jq -c 'sort_by(-(.priority // 0)) | .[]')
 
-    [[ "$processed" -gt 0 ]] && log_info "Spawned ${processed} agent unit(s) this cycle"
+    if [[ "$processed" -gt 0 ]]; then
+        log_info "Spawned ${processed} agent unit(s) this cycle"
+    fi
 }
 
 # =============================================================================
