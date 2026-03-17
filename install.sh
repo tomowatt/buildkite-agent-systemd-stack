@@ -591,8 +591,14 @@ create_directories() {
 
     # Workspace dir owned by bk-stack so the controller can create subdirs
     run chown "${SERVICE_USER}:${SERVICE_USER}" "${CFG[BK_WORK_DIR]}"
-    [[ -n "${CFG[BK_GIT_MIRRORS_PATH]:-}" ]] && run chown "${SERVICE_USER}:${SERVICE_USER}" "${CFG[BK_GIT_MIRRORS_PATH]}"
-    [[ -n "${CFG[BK_CACHE_PATH]:-}" ]]        && run chown "${SERVICE_USER}:${SERVICE_USER}" "${CFG[BK_CACHE_PATH]}"
+
+    # Git mirrors must be world-writable (sticky bit) so DynamicUser agent
+    # units (ephemeral random UIDs) can create and update mirror directories.
+    if [[ -n "${CFG[BK_GIT_MIRRORS_PATH]:-}" ]]; then
+        run chown "${SERVICE_USER}:${SERVICE_USER}" "${CFG[BK_GIT_MIRRORS_PATH]}"
+        run chmod 1777 "${CFG[BK_GIT_MIRRORS_PATH]}"
+    fi
+    [[ -n "${CFG[BK_CACHE_PATH]:-}" ]] && run chown "${SERVICE_USER}:${SERVICE_USER}" "${CFG[BK_CACHE_PATH]}"
 }
 
 write_agent_token_file() {

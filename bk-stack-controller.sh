@@ -268,6 +268,11 @@ spawn_agent() {
         --property="ProtectHome=yes"
         --property="NoNewPrivileges=yes"
 
+        # DynamicUser has no home directory; HOME=/tmp points to the per-unit
+        # private /tmp namespace (from PrivateTmp=yes), giving the agent a
+        # writable location for ~/.ssh/known_hosts and other home-dir state.
+        --property="Environment=HOME=/tmp"
+
         # --- Resource limits ---------------------------------------------
         --property="MemoryMax=4G"
         --property="CPUQuota=200%"
