@@ -204,17 +204,26 @@ check_dependencies() {
         fi
     fi
 
-    # libnss-wrapper is optional but strongly recommended.
+    # libnss-wrapper is required.
     # Agent units run under DynamicUser=yes (ephemeral UIDs not in /etc/passwd).
-    # Without libnss-wrapper, SSH and git print "No user exists for uid XXXXX"
-    # and git clone over SSH fails.
+    # OpenSSH calls fatal() when getpwuid() returns NULL for an unknown UID,
+    # aborting the connection before auth is attempted. libnss-wrapper intercepts
+    # the NSS lookup via LD_PRELOAD and returns a synthetic passwd entry.
     if ! ldconfig -p 2>/dev/null | grep -q 'libnss_wrapper\.so\.'; then
         echo
-        print_warn "libnss-wrapper not found (optional but recommended)"
-        print_info "Without it, SSH/git inside agent units may fail with"
-        print_info "'No user exists for uid XXXXX' due to DynamicUser=yes."
-        if command -v apt-get &>/dev/null; then
-            print_info "Install with: apt-get install -y libnss-wrapper"
+        print_warn "libnss-wrapper not found — required for SSH/git inside agent units"
+        print_info "Without it: OpenSSH fatals with 'No user exists for uid XXXXX'"
+        echo
+        if [[ "$UNATTENDED" -eq 1 ]]; then
+            install_dependencies libnss-wrapper
+        else
+            read -r -p "  Install libnss-wrapper now? [Y/n] " install_nss
+            install_nss="${install_nss:-y}"
+            if [[ "${install_nss,,}" == "y" ]]; then
+                install_dependencies libnss-wrapper
+            else
+                die "libnss-wrapper is required. Install with: apt-get install -y libnss-wrapper"
+            fi
         fi
     else
         print_success "libnss-wrapper found"
