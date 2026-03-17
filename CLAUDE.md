@@ -67,7 +67,7 @@ Each job runs in a transient `bk-agent-<uuid>.service` unit with:
 - `MemoryMax=4G`, `CPUQuota=200%`, `TasksMax=512`, `RuntimeMaxSec=<BK_JOB_TIMEOUT>`
 - Agent token injected via `LoadCredential=agent-token:<BK_AGENT_TOKEN_FILE>` — never in `Environment=` or on the command line
 - Agent config passed via `--config "$_BK_AGENT_CFG"` pointing to `/etc/bk-stack/agent.cfg` (mode 644, world-readable for the ephemeral UID)
-- The agent command is a `bash -c` wrapper that reads the token from `$CREDENTIALS_DIRECTORY/agent-token` before exec-ing `buildkite-agent start`
+- The agent command is a multi-line `bash -c` heredoc that: (1) sets up `libnss-wrapper` so `getpwuid()` resolves for the ephemeral UID (fixes SSH "No user exists" errors), (2) starts a per-job `ssh-agent` and loads `$CREDENTIALS_DIRECTORY/ssh-key` if present, (3) reads the agent token from `$CREDENTIALS_DIRECTORY/agent-token` and exec-s `buildkite-agent start`
 
 ### Key design constraints
 
@@ -99,7 +99,6 @@ Each job runs in a transient `bk-agent-<uuid>.service` unit with:
 
 ## Known gaps
 
-- No agent environment hook is provided for wiring `$CREDENTIALS_DIRECTORY/ssh-key` into ssh-agent (SSH method A); this must be supplied separately.
 - No retry/backoff on API calls — transient failures are retried at the next poll interval.
 - No pagination for the scheduled-jobs response; `limit=BK_MAX_AGENTS` is used (well within the API's 1000-job maximum).
 

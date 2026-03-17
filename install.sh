@@ -203,6 +203,22 @@ check_dependencies() {
             die "Please install missing dependencies and re-run."
         fi
     fi
+
+    # libnss-wrapper is optional but strongly recommended.
+    # Agent units run under DynamicUser=yes (ephemeral UIDs not in /etc/passwd).
+    # Without libnss-wrapper, SSH and git print "No user exists for uid XXXXX"
+    # and git clone over SSH fails.
+    if ! ldconfig -p 2>/dev/null | grep -q 'libnss_wrapper\.so\.'; then
+        echo
+        print_warn "libnss-wrapper not found (optional but recommended)"
+        print_info "Without it, SSH/git inside agent units may fail with"
+        print_info "'No user exists for uid XXXXX' due to DynamicUser=yes."
+        if command -v apt-get &>/dev/null; then
+            print_info "Install with: apt-get install -y libnss-wrapper"
+        fi
+    else
+        print_success "libnss-wrapper found"
+    fi
 }
 
 install_dependencies() {

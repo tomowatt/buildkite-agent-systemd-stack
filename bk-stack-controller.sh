@@ -347,10 +347,34 @@ spawn_agent() {
     fi
 
     # --- The actual agent command ----------------------------------------
-    # Read the agent token from $CREDENTIALS_DIRECTORY (injected via
-    # LoadCredential above). Extracting to a variable avoids backslash
-    # continuations inside single quotes, which are literal, not shell escapes.
-    local agent_cmd='BUILDKITE_AGENT_TOKEN=$(cat "$CREDENTIALS_DIRECTORY/agent-token") exec buildkite-agent start --config "$_BK_AGENT_CFG" --disconnect-after-job --no-color --queue "$_BK_QUEUE"'
+    # Uses a heredoc so the script can span multiple lines without quoting
+    # gymnastics. Variables like $CREDENTIALS_DIRECTORY are NOT expanded here
+    # (the heredoc delimiter is quoted); bash -c expands them at runtime.
+    local agent_cmd
+    agent_cmd=$(cat <<'AGENT_CMD'
+    # DynamicUser=yes allocates an ephemeral UID not present in /etc/passwd.
+    # SSH and git call getpwuid() which returns NULL for unknown UIDs, causing
+    # "No user exists for uid XXXXX" errors and connection failures.
+    # libnss-wrapper intercepts NSS calls and returns a synthetic passwd entry.
+    _uid=$(id -u); _gid=$(id -g)
+    printf 'bk-agent:x:%d:%d:Buildkite Agent:/tmp:/bin/sh\n' "$_uid" "$_gid" > /tmp/nss_passwd
+    printf 'bk-agent:x:%d:\n' "$_gid" > /tmp/nss_group
+    _nss=$(ldconfig -p 2>/dev/null | awk '/libnss_wrapper\.so\./{print $NF; exit}')
+    if [[ -n "$_nss" ]]; then
+        export LD_PRELOAD="$_nss"
+        export NSS_WRAPPER_PASSWD=/tmp/nss_passwd
+        export NSS_WRAPPER_GROUP=/tmp/nss_group
+    fi
+    # Load the SSH key (injected via LoadCredential) into a per-job ssh-agent.
+    if [[ -f "$CREDENTIALS_DIRECTORY/ssh-key" ]]; then
+        eval "$(ssh-agent -s)"
+        ssh-add "$CREDENTIALS_DIRECTORY/ssh-key" 2>/dev/null || true
+    fi
+    BUILDKITE_AGENT_TOKEN=$(cat "$CREDENTIALS_DIRECTORY/agent-token") \
+        exec buildkite-agent start --config "$_BK_AGENT_CFG" \
+            --disconnect-after-job --no-color --queue "$_BK_QUEUE"
+AGENT_CMD
+)
     args+=(bash -c "$agent_cmd")
 
     # Execute
