@@ -60,6 +60,7 @@ BK_JOB_TIMEOUT="${BK_JOB_TIMEOUT:-3600}"
 BK_WORK_DIR="${BK_WORK_DIR:-/var/lib/bk-stack/work}"
 BK_LOG_LEVEL="${BK_LOG_LEVEL:-info}"
 BK_AGENT_TOKEN_FILE="${BK_AGENT_TOKEN_FILE:-/etc/bk-stack/secrets/agent-token}"
+BK_AGENT_CONFIG_FILE="${BK_AGENT_CONFIG_FILE:-/etc/bk-stack/agent.cfg}"
 
 # Internal state
 STACK_REGISTERED=0
@@ -285,6 +286,9 @@ spawn_agent() {
         # Queue name is non-sensitive; passed as env so the shell wrapper below
         # can forward it to buildkite-agent without hardcoding it in the args.
         --property="Environment=_BK_QUEUE=${BK_QUEUE}"
+
+        # Agent config file path; world-readable so DynamicUser can access it.
+        --property="Environment=_BK_AGENT_CFG=${BK_AGENT_CONFIG_FILE}"
     )
 
     # --- Shared git mirrors (read-write so agent can update the mirror) --
@@ -324,7 +328,7 @@ spawn_agent() {
     # Read the agent token from $CREDENTIALS_DIRECTORY (injected via
     # LoadCredential above). Extracting to a variable avoids backslash
     # continuations inside single quotes, which are literal, not shell escapes.
-    local agent_cmd='BUILDKITE_AGENT_TOKEN=$(cat "$CREDENTIALS_DIRECTORY/agent-token") exec buildkite-agent start --disconnect-after-job --no-color --queue "$_BK_QUEUE"'
+    local agent_cmd='BUILDKITE_AGENT_TOKEN=$(cat "$CREDENTIALS_DIRECTORY/agent-token") exec buildkite-agent start --config "$_BK_AGENT_CFG" --disconnect-after-job --no-color --queue "$_BK_QUEUE"'
     args+=(bash -c "$agent_cmd")
 
     # Execute

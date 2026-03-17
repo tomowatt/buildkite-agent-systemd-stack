@@ -36,6 +36,7 @@ readonly SERVICE_NAME="bk-stack-controller"
 readonly SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 readonly CONTROLLER_SCRIPT="${INSTALL_DIR}/bk-stack-controller.sh"
 readonly ENV_FILE="${CONFIG_DIR}/controller.env"
+readonly AGENT_CONFIG_FILE="${CONFIG_DIR}/agent.cfg"
 readonly SERVICE_USER="bk-stack"
 readonly POLKIT_RULES_FILE="/etc/polkit-1/rules.d/50-bk-stack.rules"
 
@@ -765,6 +766,50 @@ ENVEOF
     print_success "Configuration written to ${ENV_FILE}"
 }
 
+write_agent_config() {
+    print_section "Writing agent configuration"
+
+    if [[ -f "$AGENT_CONFIG_FILE" ]]; then
+        print_info "Agent config already exists at ${AGENT_CONFIG_FILE} — skipping"
+        return 0
+    fi
+
+    local tmp_cfg
+    tmp_cfg=$(mktemp)
+
+    cat > "$tmp_cfg" << 'AGENTCFGEOF'
+# =============================================================================
+# /etc/bk-stack/agent.cfg
+#
+# Shared buildkite-agent configuration for all transient agent units spawned
+# by bk-stack-controller. This file must be world-readable (mode 644) so the
+# ephemeral DynamicUser UID can read it.
+#
+# Do NOT add agent-token here — it is injected securely via LoadCredential.
+# Dynamic per-job settings (queue, build path, tags) are set by the controller.
+# =============================================================================
+
+# Agents always disconnect after running a single job.
+disconnect-after-job = true
+no-color = true
+
+# Optional: agent name template (%hostname expands to the host's hostname).
+# name = "bk-%hostname-%n"
+
+# Optional: hooks directory for environment and checkout hooks.
+# hooks-path = /etc/bk-stack/hooks
+
+# Optional: plugins directory.
+# plugins-path = /etc/bk-stack/plugins
+AGENTCFGEOF
+
+    # World-readable so DynamicUser (random UID) can read it.
+    run install -m 644 -o root -g root "$tmp_cfg" "$AGENT_CONFIG_FILE"
+    rm -f "$tmp_cfg"
+
+    print_success "Agent config written to ${AGENT_CONFIG_FILE}"
+}
+
 write_service_unit() {
     print_section "Installing systemd service unit"
 
@@ -961,6 +1006,7 @@ main() {
     generate_ssh_key
     install_controller_script
     write_env_file
+    write_agent_config
     write_service_unit
     enable_and_start_service
 
