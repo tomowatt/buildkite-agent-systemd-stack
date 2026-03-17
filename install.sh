@@ -694,7 +694,7 @@ install_controller_script() {
         print_info "Downloading from: ${CONTROLLER_SCRIPT_URL}"
         source_script="$(mktemp /tmp/bk-stack-controller-XXXXXX.sh)"
         # shellcheck disable=SC2064
-        trap "rm -f ${source_script}" EXIT
+        trap "rm -f '${source_script}'" EXIT
 
         if [[ "$DRY_RUN" -eq 0 ]]; then
             curl --silent --fail --location \
