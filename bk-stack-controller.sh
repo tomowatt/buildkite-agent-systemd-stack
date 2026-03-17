@@ -383,8 +383,11 @@ spawn_agent() {
         trap 'ssh-agent -k 2>/dev/null || true' EXIT
         ssh-add "$CREDENTIALS_DIRECTORY/ssh-key" 2>/dev/null || true
     fi
+    # Do NOT use exec here: exec replaces the shell process so the EXIT trap
+    # set above (ssh-agent -k) would never fire, leaking the ssh-agent daemon.
+    # The slight overhead of keeping the bash wrapper alive is negligible.
     BUILDKITE_AGENT_TOKEN=$(cat "$CREDENTIALS_DIRECTORY/agent-token") \
-        exec buildkite-agent start --config "$_BK_AGENT_CFG" \
+        buildkite-agent start --config "$_BK_AGENT_CFG" \
             --disconnect-after-job --no-color --queue "$_BK_QUEUE"
 AGENT_CMD
 )
