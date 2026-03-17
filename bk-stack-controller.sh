@@ -245,6 +245,9 @@ spawn_agent() {
     local work_dir="${BK_WORK_DIR}/${job_uuid}"
 
     mkdir -p "$work_dir"
+    # World-writable + sticky bit: DynamicUser (random UID) needs write access,
+    # but the sticky bit prevents one job's UID from deleting another's files.
+    chmod 1777 "$work_dir"
 
     log_info "Spawning agent unit ${unit}"
     notify_job "$job_uuid" "Provisioning systemd agent unit"
@@ -274,7 +277,10 @@ spawn_agent() {
         --property="RuntimeMaxSec=${BK_JOB_TIMEOUT}"
 
         # --- Working directory -------------------------------------------
+        # DynamicUser=yes implies ProtectSystem=strict (read-only filesystem).
+        # ReadWritePaths overrides that for the per-job work directory.
         --property="WorkingDirectory=${work_dir}"
+        --property="ReadWritePaths=${work_dir}"
         --property="Environment=BUILDKITE_BUILD_PATH=${work_dir}"
 
         # --- Agent token & job targeting ---------------------------------
