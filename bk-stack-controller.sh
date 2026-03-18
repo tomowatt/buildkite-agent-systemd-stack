@@ -64,6 +64,7 @@ BK_AGENT_CONFIG_FILE="${BK_AGENT_CONFIG_FILE:-/etc/bk-stack/agent.cfg}"
 
 # Internal state
 SHUTDOWN_REQUESTED=0
+_CURL_AUTH_FILE=""   # set in main() after check_prerequisites; used by api_call()
 
 # =============================================================================
 # Logging
@@ -151,10 +152,12 @@ api_call() {
 
     log_debug "API ${method} ${url}"
 
+    # Authorization header is read from a curl config file (written at startup)
+    # so the token never appears in the curl command line / /proc/PID/cmdline.
     curl --silent --fail-with-body \
         --max-time 30 \
+        --config "${_CURL_AUTH_FILE}" \
         -X "$method" \
-        -H "Authorization: Token ${BK_AGENT_TOKEN}" \
         -H "Content-Type: application/json" \
         "$@" \
         "$url"
@@ -416,7 +419,7 @@ reap_stale_units() {
         monotonic=$(systemctl show "$unit" --property=ActiveEnterTimestampMonotonic \
             --value 2>/dev/null || echo 0)
 
-        if [[ "$monotonic" -gt 0 ]]; then
+        if [[ "$monotonic" =~ ^[0-9]+$ ]] && [[ "$monotonic" -gt 0 ]]; then
             local now_mono
             now_mono=$(awk '{printf "%d\n", $1 * 1000000}' /proc/uptime)
             age_sec=$(( (now_mono - monotonic) / 1000000 ))
@@ -614,6 +617,15 @@ main() {
     log_info "bk-stack-controller starting (stack=${BK_STACK_KEY} queue=${BK_QUEUE}) v${CONTROLLER_VERSION}"
 
     check_prerequisites
+
+    # Write the Authorization header to a private temp file so the agent token
+    # never appears in the curl command line or /proc/<pid>/cmdline.
+    _CURL_AUTH_FILE=$(mktemp /tmp/bk-stack-curl-XXXXXX)
+    chmod 600 "$_CURL_AUTH_FILE"
+    printf 'header = "Authorization: Token %s"\n' "$BK_AGENT_TOKEN" > "$_CURL_AUTH_FILE"
+    # shellcheck disable=SC2064
+    trap "rm -f '${_CURL_AUTH_FILE}'" EXIT
+
     check_for_update
 
     trap handle_shutdown SIGTERM SIGINT

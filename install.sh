@@ -166,7 +166,7 @@ check_os() {
     # Warn on older systemd versions that lack DynamicUser
     local systemd_ver
     systemd_ver=$(systemctl --version | head -1 | awk '{print $2}')
-    if [[ "$systemd_ver" -lt 247 ]]; then
+    if [[ "$systemd_ver" =~ ^[0-9]+$ ]] && [[ "$systemd_ver" -lt 247 ]]; then
         print_warn "systemd ${systemd_ver} detected. Version 247+ is required (SetCredential support for agent token isolation)."
     fi
 }
@@ -574,11 +574,16 @@ install_polkit_rule() {
     tmp_rules=$(mktemp)
 
     cat > "$tmp_rules" << 'RULESEOF'
-// Allow the bk-stack service user to start transient systemd units via
+// Allow the bk-stack service user to start and stop transient agent units via
 // systemd-run without interactive authentication.
+// Scoped to bk-agent-<uuid>.service units only — the service user cannot
+// manage arbitrary systemd units.
 polkit.addRule(function(action, subject) {
+    var unit = action.lookup("unit");
     if (action.id === "org.freedesktop.systemd1.manage-units" &&
-        subject.user === "bk-stack") {
+        subject.user === "bk-stack" &&
+        unit !== undefined &&
+        unit.match(/^bk-agent-[0-9a-f-]+\.service$/)) {
         return polkit.Result.YES;
     }
 });
@@ -755,27 +760,27 @@ ENVEOF
 # --- Queue & concurrency -----------------------------------------------------
 
 ENVEOF
-    printf 'BK_QUEUE=%s\n'         "${CFG[BK_QUEUE]}"         >> "$tmp_env"
-    printf 'BK_MAX_AGENTS=%s\n'    "${CFG[BK_MAX_AGENTS]}"    >> "$tmp_env"
-    printf 'BK_POLL_INTERVAL=%s\n' "${CFG[BK_POLL_INTERVAL]}" >> "$tmp_env"
-    printf 'BK_JOB_TIMEOUT=%s\n'   "${CFG[BK_JOB_TIMEOUT]}"   >> "$tmp_env"
+    printf 'BK_QUEUE="%s"\n'         "${CFG[BK_QUEUE]//\"/\\\"}"         >> "$tmp_env"
+    printf 'BK_MAX_AGENTS=%s\n'      "${CFG[BK_MAX_AGENTS]}"              >> "$tmp_env"
+    printf 'BK_POLL_INTERVAL=%s\n'   "${CFG[BK_POLL_INTERVAL]}"           >> "$tmp_env"
+    printf 'BK_JOB_TIMEOUT=%s\n'     "${CFG[BK_JOB_TIMEOUT]}"             >> "$tmp_env"
 
     cat >> "$tmp_env" << 'ENVEOF'
 
 # --- Paths -------------------------------------------------------------------
 
 ENVEOF
-    printf 'BK_WORK_DIR=%s\n' "${CFG[BK_WORK_DIR]}" >> "$tmp_env"
-    printf 'BK_AGENT_TOKEN_FILE=%s\n' "${SECRETS_DIR}/agent-token" >> "$tmp_env"
+    printf 'BK_WORK_DIR="%s"\n'        "${CFG[BK_WORK_DIR]//\"/\\\"}"       >> "$tmp_env"
+    printf 'BK_AGENT_TOKEN_FILE="%s"\n' "${SECRETS_DIR}/agent-token"         >> "$tmp_env"
 
     if [[ -n "${CFG[BK_GIT_MIRRORS_PATH]:-}" ]]; then
-        printf 'BK_GIT_MIRRORS_PATH=%s\n' "${CFG[BK_GIT_MIRRORS_PATH]}" >> "$tmp_env"
+        printf 'BK_GIT_MIRRORS_PATH="%s"\n' "${CFG[BK_GIT_MIRRORS_PATH]//\"/\\\"}" >> "$tmp_env"
     else
         printf '# BK_GIT_MIRRORS_PATH=\n' >> "$tmp_env"
     fi
 
     if [[ -n "${CFG[BK_CACHE_PATH]:-}" ]]; then
-        printf 'BK_CACHE_PATH=%s\n' "${CFG[BK_CACHE_PATH]}" >> "$tmp_env"
+        printf 'BK_CACHE_PATH="%s"\n' "${CFG[BK_CACHE_PATH]//\"/\\\"}" >> "$tmp_env"
     else
         printf '# BK_CACHE_PATH=\n' >> "$tmp_env"
     fi
@@ -787,11 +792,11 @@ ENVEOF
 EOF
 
     if [[ -n "${CFG[BK_CREDENTIAL_SSH_KEY]:-}" ]]; then
-        printf 'BK_CREDENTIAL_SSH_KEY=%s\n' "${CFG[BK_CREDENTIAL_SSH_KEY]}" >> "$tmp_env"
+        printf 'BK_CREDENTIAL_SSH_KEY="%s"\n' "${CFG[BK_CREDENTIAL_SSH_KEY]//\"/\\\"}" >> "$tmp_env"
         printf '# BK_SSH_AGENT_SOCK=\n' >> "$tmp_env"
     elif [[ -n "${CFG[BK_SSH_AGENT_SOCK]:-}" ]]; then
         printf '# BK_CREDENTIAL_SSH_KEY=\n' >> "$tmp_env"
-        printf 'BK_SSH_AGENT_SOCK=%s\n' "${CFG[BK_SSH_AGENT_SOCK]}" >> "$tmp_env"
+        printf 'BK_SSH_AGENT_SOCK="%s"\n' "${CFG[BK_SSH_AGENT_SOCK]//\"/\\\"}" >> "$tmp_env"
     else
         printf '# BK_CREDENTIAL_SSH_KEY=\n' >> "$tmp_env"
         printf '# BK_SSH_AGENT_SOCK=\n' >> "$tmp_env"
@@ -806,7 +811,7 @@ EOF
 # --- Logging -----------------------------------------------------------------
 
 ENVEOF
-    printf 'BK_LOG_LEVEL=%s\n' "${CFG[BK_LOG_LEVEL]}" >> "$tmp_env"
+    printf 'BK_LOG_LEVEL="%s"\n' "${CFG[BK_LOG_LEVEL]//\"/\\\"}" >> "$tmp_env"
 
     run install -m 640 -o root -g "$SERVICE_USER" "$tmp_env" "$ENV_FILE"
     rm -f "$tmp_env"
