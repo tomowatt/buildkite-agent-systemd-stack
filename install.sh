@@ -258,7 +258,8 @@ prompt_path() {
 
     if [[ "$UNATTENDED" -eq 1 ]]; then
         local val="${!var:-$default}"
-        [[ "$val" == /* ]] || die "${var} must be an absolute path, got: ${val}"
+        [[ "$val" == /* ]]        || die "${var} must be an absolute path, got: ${val}"
+        [[ "$val" != *$'\n'* ]]   || die "${var} must not contain newlines"
         CFG[$var]="$val"
         return
     fi
@@ -278,6 +279,10 @@ prompt_path() {
         fi
         if [[ "$value" != /* ]]; then
             print_warn "Path must be absolute (start with /). Got: ${value}"
+            continue
+        fi
+        if [[ "$value" == *$'\n'* ]]; then
+            print_warn "Path must not contain newlines."
             continue
         fi
         break
