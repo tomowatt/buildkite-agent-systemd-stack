@@ -582,7 +582,7 @@ polkit.addRule(function(action, subject) {
     var unit = action.lookup("unit");
     if (action.id === "org.freedesktop.systemd1.manage-units" &&
         subject.user === "bk-stack" &&
-        unit !== undefined &&
+        unit &&
         unit.match(/^bk-agent-[0-9a-f-]+\.service$/)) {
         return polkit.Result.YES;
     }
