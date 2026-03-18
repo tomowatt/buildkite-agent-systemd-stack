@@ -457,6 +457,8 @@ collect_ssh_config() {
     local ssh_choice
     if [[ "$UNATTENDED" -eq 1 ]]; then
         ssh_choice="${SSH_METHOD:-A}"
+        [[ "${ssh_choice^^}" =~ ^[ABC]$ ]] \
+            || die "SSH_METHOD must be A, B, or C (got: ${ssh_choice})"
     else
         read -r -p "  ▸ Choose A, B, or C [A]: " ssh_choice
         ssh_choice="${ssh_choice:-A}"
