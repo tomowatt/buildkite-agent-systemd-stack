@@ -63,7 +63,6 @@ BK_AGENT_TOKEN_FILE="${BK_AGENT_TOKEN_FILE:-/etc/bk-stack/secrets/agent-token}"
 BK_AGENT_CONFIG_FILE="${BK_AGENT_CONFIG_FILE:-/etc/bk-stack/agent.cfg}"
 
 # Internal state
-STACK_REGISTERED=0
 SHUTDOWN_REQUESTED=0
 
 # =============================================================================
@@ -181,7 +180,6 @@ register_stack() {
     response=$(api_call POST "/stacks/register" --data "$payload") \
         || die "Failed to register stack. API response: ${response:-<empty>}"
 
-    STACK_REGISTERED=1
     log_info "Stack registered"
 }
 
@@ -408,7 +406,7 @@ AGENT_CMD
 # systemd RuntimeMaxSec should handle this, but this is a belt-and-suspenders
 # check for units stuck in activating/deactivating.
 reap_stale_units() {
-    local unit age_sec threshold_sec
+    local unit age_sec
 
     while IFS= read -r unit; do
         [[ -z "$unit" ]] && continue
