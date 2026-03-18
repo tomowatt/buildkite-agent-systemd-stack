@@ -13,8 +13,14 @@
 #     sudo bk-stack-controller.sh --update
 #
 # ENVIRONMENT (via EnvironmentFile or systemd drop-in)
-#   Required:
-#     BK_AGENT_TOKEN          Buildkite cluster agent token
+#   Required (one of):
+#     CREDENTIALS_DIRECTORY   Set automatically by systemd when LoadCredential=
+#                             agent-token is present in the service unit. The
+#                             controller reads the token from
+#                             $CREDENTIALS_DIRECTORY/agent-token at startup.
+#     BK_AGENT_TOKEN          Fallback: literal token value. Supported for
+#                             backward compatibility and manual invocations
+#                             outside of systemd.
 #     BK_STACK_KEY            Unique identifier for this stack instance
 #     BK_AGENTAPI_BASE_URL    Base URL for the Agent API
 #                             e.g. https://agent.buildkite.com/v3
@@ -652,6 +658,15 @@ main() {
     fi
 
     log_info "bk-stack-controller starting (stack=${BK_STACK_KEY} queue=${BK_QUEUE}) v${CONTROLLER_VERSION}"
+
+    # Load the agent token from the systemd credential file (injected via
+    # LoadCredential=agent-token in the service unit). Falls back to the
+    # BK_AGENT_TOKEN env var for backward compatibility and manual invocations.
+    if [[ -z "${BK_AGENT_TOKEN:-}" && \
+          -n "${CREDENTIALS_DIRECTORY:-}" && \
+          -f "${CREDENTIALS_DIRECTORY}/agent-token" ]]; then
+        BK_AGENT_TOKEN=$(< "${CREDENTIALS_DIRECTORY}/agent-token")
+    fi
 
     check_prerequisites
 

@@ -27,6 +27,11 @@ ExecStart=/usr/local/bin/bk-stack-controller.sh
 # See bk-stack-controller.env.example for the full list of variables.
 EnvironmentFile=/etc/bk-stack/controller.env
 
+# Agent token — loaded from the credential file so it is NOT present in the
+# EnvironmentFile and is never visible via `systemctl show` or ps output.
+# If this file does not exist, systemd will refuse to start this service.
+LoadCredential=agent-token:/etc/bk-stack/secrets/agent-token
+
 # OPTIONAL — SSH method A only.
 # Remove this line if you chose SSH method B (shared socket) or C (none).
 # If the key file does not exist, systemd will refuse to start this service.

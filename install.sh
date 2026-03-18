@@ -740,6 +740,11 @@ write_env_file() {
 # Buildkite Stack Controller — Environment Configuration
 #
 # Permissions: chmod 640  chown root:SERVICEUSER
+#
+# NOTE: BK_AGENT_TOKEN is intentionally absent from this file.
+# The token is stored at /etc/bk-stack/secrets/agent-token (mode 400, root:root)
+# and injected into the controller at runtime via systemd LoadCredential.
+# This keeps the token out of the group-readable EnvironmentFile.
 # =============================================================================
 
 # --- Required ----------------------------------------------------------------
@@ -751,7 +756,6 @@ ENVEOF
 
     # Quote values that may contain '#' (systemd env file comment delimiter)
     # or other characters that would be misinterpreted without quoting.
-    printf 'BK_AGENT_TOKEN="%s"\n'      "${CFG[BK_AGENT_TOKEN]//\"/\\\"}"       >> "$tmp_env"
     printf 'BK_STACK_KEY=%s\n'          "${CFG[BK_STACK_KEY]}"                  >> "$tmp_env"
     printf 'BK_AGENTAPI_BASE_URL="%s"\n' "${CFG[BK_AGENTAPI_BASE_URL]//\"/\\\"}" >> "$tmp_env"
 
@@ -871,10 +875,12 @@ write_service_unit() {
     [[ -n "${CFG[BK_GIT_MIRRORS_PATH]:-}" ]] && bind_paths+=$'\n'"ReadWritePaths=${CFG[BK_GIT_MIRRORS_PATH]}"
     [[ -n "${CFG[BK_CACHE_PATH]:-}" ]]        && bind_paths+=$'\n'"ReadWritePaths=${CFG[BK_CACHE_PATH]}"
 
-    # Build optional LoadCredential line
-    local load_credential=""
+    # Build LoadCredential lines.
+    # The agent-token credential is always present (written by write_agent_token_file).
+    # The SSH key credential is optional (only included when SSH method A is chosen).
+    local load_credential="LoadCredential=agent-token:${SECRETS_DIR}/agent-token"
     if [[ -n "${CFG[BK_CREDENTIAL_SSH_KEY]:-}" ]]; then
-        load_credential="LoadCredential=ssh-key:${CFG[BK_CREDENTIAL_SSH_KEY]}"
+        load_credential+=$'\n'"LoadCredential=ssh-key:${CFG[BK_CREDENTIAL_SSH_KEY]}"
     fi
 
     local tmp_svc
