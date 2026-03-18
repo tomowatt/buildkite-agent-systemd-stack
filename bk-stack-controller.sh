@@ -239,6 +239,35 @@ notify_job() {
         --data "$payload" > /dev/null 2>&1 || true  # non-fatal
 }
 
+# Finish a job via the Stacks API without spawning an agent.
+# Call when the stack cannot start an agent due to an infrastructure problem
+# (e.g. disk full, systemd-run failure). The job will appear as failed on the
+# Buildkite build page with a special marker and the provided detail message.
+# The API accepts this call at most once per job.
+# Usage: finish_job <job_uuid> <exit_status> <detail>
+# Non-fatal — errors are logged but do not abort the controller.
+finish_job() {
+    local job_uuid="$1" exit_status="$2" detail="$3"
+
+    # The API enforces a 4096-byte maximum on the detail field.
+    if [[ ${#detail} -gt 4096 ]]; then
+        detail="${detail:0:4093}..."
+    fi
+
+    local payload
+    payload=$(jq -n \
+        --argjson status "$exit_status" \
+        --arg    detail "$detail" \
+        '{ exit_status: $status, detail: $detail }')
+
+    if api_call POST "/stacks/${BK_STACK_KEY}/jobs/${job_uuid}/finish" \
+            --data "$payload" > /dev/null 2>&1; then
+        log_info "Job ${job_uuid} finished via API (exit_status=${exit_status})"
+    else
+        log_warn "Failed to call finish-job API for ${job_uuid}"
+    fi
+}
+
 
 # =============================================================================
 # Agent unit management
@@ -266,10 +295,15 @@ spawn_agent() {
     unit=$(unit_name "$job_uuid")
     local work_dir="${BK_WORK_DIR}/${job_uuid}"
 
-    mkdir -p "$work_dir"
+    if ! mkdir -p "$work_dir"; then
+        log_error "Failed to create work directory ${work_dir} for job ${job_uuid}"
+        finish_job "$job_uuid" -1 \
+            "Stack failed to create agent work directory: ${work_dir}"
+        return 1
+    fi
     # World-writable + sticky bit: DynamicUser (random UID) needs write access,
     # but the sticky bit prevents one job's UID from deleting another's files.
-    chmod 1777 "$work_dir"
+    chmod 1777 "$work_dir" 2>/dev/null || true
 
     log_info "Spawning agent unit ${unit}"
     notify_job "$job_uuid" "Provisioning systemd agent unit"
@@ -400,8 +434,11 @@ AGENT_CMD
         log_info "Unit ${unit} started successfully"
         notify_job "$job_uuid" "Agent unit started"
     else
-        log_error "Failed to start unit ${unit}"
+        local rc=$?
+        log_error "Failed to start unit ${unit} (systemd-run exit code: ${rc})"
         notify_job "$job_uuid" "ERROR: Failed to start agent unit"
+        finish_job "$job_uuid" -1 \
+            "Stack failed to start agent unit ${unit} (systemd-run exit code: ${rc})"
     fi
 }
 
