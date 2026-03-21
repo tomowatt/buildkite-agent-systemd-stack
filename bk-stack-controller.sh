@@ -411,6 +411,21 @@ spawn_agent() {
     # (the heredoc delimiter is quoted); bash -c expands them at runtime.
     local agent_cmd
     agent_cmd=$(cat <<'AGENT_CMD'
+    # Write a per-unit SSH config so that all SSH invocations within this unit
+    # (buildkite-agent checkout, git clone --mirror, hooks) share the same
+    # known_hosts file. Without this, git mirror clones run with independent
+    # SSH contexts and prompt for host-key verification even after buildkite-agent
+    # has already accepted the key for the checkout step.
+    # StrictHostKeyChecking=accept-new: auto-accept first-seen keys but reject
+    # changed keys (safe for CI; DynamicUser meant no persistent known_hosts anyway).
+    mkdir -p /tmp/.ssh
+    chmod 700 /tmp/.ssh
+    cat > /tmp/.ssh/config << 'SSHEOF'
+Host *
+    StrictHostKeyChecking accept-new
+    UserKnownHostsFile /tmp/.ssh/known_hosts
+SSHEOF
+    chmod 600 /tmp/.ssh/config
     # Load the SSH key (injected via LoadCredential) into a per-job ssh-agent.
     if [[ -f "$CREDENTIALS_DIRECTORY/ssh-key" ]]; then
         _agent_out=$(ssh-agent -s)
