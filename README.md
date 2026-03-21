@@ -12,7 +12,7 @@ A persistent controller service (`bk-stack-controller`) registers with a Buildki
 
 - Linux with **systemd 247+** (Ubuntu 22.04+, Debian 12+, RHEL 9+)
 - [`buildkite-agent`](https://buildkite.com/docs/agent/v3/installation) installed on the host
-- `curl`, `jq`, and `libnss-wrapper` (`apt-get install -y libnss-wrapper`)
+- `curl` and `jq`
 - Root access for the installer
 
 ## Quick Start
