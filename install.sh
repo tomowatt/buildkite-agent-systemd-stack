@@ -208,30 +208,6 @@ check_dependencies() {
         fi
     fi
 
-    # libnss-wrapper is required.
-    # Agent units run under DynamicUser=yes (ephemeral UIDs not in /etc/passwd).
-    # OpenSSH calls fatal() when getpwuid() returns NULL for an unknown UID,
-    # aborting the connection before auth is attempted. libnss-wrapper intercepts
-    # the NSS lookup via LD_PRELOAD and returns a synthetic passwd entry.
-    if ! ldconfig -p 2>/dev/null | grep -q 'libnss_wrapper\.so'; then
-        echo
-        print_warn "libnss-wrapper not found — required for SSH/git inside agent units"
-        print_info "Without it: OpenSSH fatals with 'No user exists for uid XXXXX'"
-        echo
-        if [[ "$UNATTENDED" -eq 1 ]]; then
-            install_dependencies libnss-wrapper
-        else
-            read -r -p "  Install libnss-wrapper now? [Y/n] " install_nss
-            install_nss="${install_nss:-y}"
-            if [[ "${install_nss,,}" == "y" ]]; then
-                install_dependencies libnss-wrapper
-            else
-                die "libnss-wrapper is required. Install with: apt-get install -y libnss-wrapper"
-            fi
-        fi
-    else
-        print_success "libnss-wrapper found"
-    fi
 }
 
 install_dependencies() {
@@ -610,6 +586,23 @@ create_user() {
     fi
 }
 
+AGENT_USER="bk-agent"
+
+create_agent_user() {
+    print_section "Creating agent user"
+    if id "$AGENT_USER" &>/dev/null; then
+        print_info "User '${AGENT_USER}' already exists — skipping"
+    else
+        run useradd \
+            --system \
+            --no-create-home \
+            --shell /usr/sbin/nologin \
+            --comment "Buildkite Stack Agent" \
+            "$AGENT_USER"
+        print_success "Created system user '${AGENT_USER}'"
+    fi
+}
+
 create_directories() {
     print_section "Creating directories"
 
@@ -633,15 +626,20 @@ create_directories() {
     # Workspace dir owned by bk-stack so the controller can create subdirs
     run chown "${SERVICE_USER}:${SERVICE_USER}" "${CFG[BK_WORK_DIR]}"
 
-    # Git mirrors must be world-writable (no sticky bit) so DynamicUser agent
-    # units (ephemeral random UIDs) can create, update, and remove lock files
-    # from mirror directories. Sticky bit would prevent one UID from deleting
-    # stale .clonelockf files created by a different DynamicUser UID.
+    # Git mirrors: bk-stack owns the dir (can delete any file as dir owner),
+    # bk-agent group gets write access (agents can create/update mirrors).
+    # Sticky bit (1770) means only the dir owner (bk-stack) can delete entries,
+    # so the controller can clean up stale lock files left by finished agents.
     if [[ -n "${CFG[BK_GIT_MIRRORS_PATH]:-}" ]]; then
-        run chown "${SERVICE_USER}:${SERVICE_USER}" "${CFG[BK_GIT_MIRRORS_PATH]}"
-        run chmod 0777 "${CFG[BK_GIT_MIRRORS_PATH]}"  # no sticky: DynamicUsers must be able to remove stale lock files
+        run chown "${SERVICE_USER}:${AGENT_USER}" "${CFG[BK_GIT_MIRRORS_PATH]}"
+        run chmod 1770 "${CFG[BK_GIT_MIRRORS_PATH]}"
     fi
-    [[ -n "${CFG[BK_CACHE_PATH]:-}" ]] && run chown "${SERVICE_USER}:${SERVICE_USER}" "${CFG[BK_CACHE_PATH]}"
+    # Cache: same ownership model as git mirrors. Agents need write access to
+    # populate the cache; bk-stack (dir owner) can prune stale cache entries.
+    if [[ -n "${CFG[BK_CACHE_PATH]:-}" ]]; then
+        run chown "${SERVICE_USER}:${AGENT_USER}" "${CFG[BK_CACHE_PATH]}"
+        run chmod 1770 "${CFG[BK_CACHE_PATH]}"
+    fi
 }
 
 write_agent_token_file() {
@@ -908,6 +906,7 @@ ${load_credential}
 
 User=${SERVICE_USER}
 Group=${SERVICE_USER}
+SupplementaryGroups=${AGENT_USER}
 
 ProtectSystem=strict
 ProtectHome=yes
@@ -1060,6 +1059,7 @@ main() {
     # Install
     install_polkit_rule
     create_user
+    create_agent_user
     create_directories
     write_agent_token_file
     generate_ssh_key
