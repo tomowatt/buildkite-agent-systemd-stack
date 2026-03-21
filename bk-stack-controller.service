@@ -42,6 +42,7 @@ LoadCredential=ssh-key:/etc/bk-stack/secrets/id_ed25519
 # --- User -------------------------------------------------------------------
 User=bk-stack
 Group=bk-stack
+SupplementaryGroups=bk-agent
 
 # --- Filesystem hardening ---------------------------------------------------
 ProtectSystem=strict
