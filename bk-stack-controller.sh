@@ -133,12 +133,13 @@ check_prerequisites() {
 
     mkdir -p "$BK_WORK_DIR"
 
-    # Ensure git mirrors directory is world-writable without sticky bit.
-    # DynamicUser agent units (ephemeral random UIDs) need to create mirror
-    # dirs AND delete stale .clonelockf files left by previous unit UIDs.
-    # Sticky bit (1777) prevents cross-UID lock file removal, so we use 0777.
+    # Ensure git mirrors directory has correct group ownership and permissions.
+    # bk-agent group members (agent units) can create/update mirror dirs.
+    # The sticky bit (1770) means only the dir owner (bk-stack) can remove entries,
+    # so the controller can clean up stale lock files left by finished agents.
     if [[ -n "${BK_GIT_MIRRORS_PATH:-}" && -d "${BK_GIT_MIRRORS_PATH}" ]]; then
-        chmod 0777 "${BK_GIT_MIRRORS_PATH}" 2>/dev/null || true
+        chgrp bk-agent "${BK_GIT_MIRRORS_PATH}" 2>/dev/null || true
+        chmod 1770 "${BK_GIT_MIRRORS_PATH}" 2>/dev/null || true
         find "${BK_GIT_MIRRORS_PATH}" -maxdepth 1 -type f -name "*.clonelockf" -delete 2>/dev/null || true
         log_debug "Git mirrors dir ready: ${BK_GIT_MIRRORS_PATH}"
     fi
@@ -307,9 +308,10 @@ spawn_agent() {
             "Stack failed to create agent work directory: ${work_dir}"
         return 1
     fi
-    # World-writable + sticky bit: DynamicUser (random UID) needs write access,
-    # but the sticky bit prevents one job's UID from deleting another's files.
-    chmod 1777 "$work_dir" 2>/dev/null || true
+    # bk-agent group owns the dir (770) so the agent unit has full access.
+    # No sticky bit needed: only one agent runs per work_dir and bk-stack cleans up.
+    chgrp bk-agent "$work_dir" 2>/dev/null || true
+    chmod 770 "$work_dir" 2>/dev/null || true
 
     log_info "Spawning agent unit ${unit}"
     notify_job "$job_uuid" "Provisioning systemd agent unit"
@@ -324,13 +326,19 @@ spawn_agent() {
         --description="Buildkite agent for job ${job_uuid}"
 
         # --- Isolation ----------------------------------------------------
-        --property="DynamicUser=yes"
+        # bk-agent is a real system user (no login shell, no home dir).
+        # ProtectSystem=strict and RemoveIPC=yes were previously implied by
+        # DynamicUser=yes; we set them explicitly now.
+        --property="User=bk-agent"
+        --property="Group=bk-agent"
+        --property="ProtectSystem=strict"
+        --property="RemoveIPC=yes"
         --property="PrivateTmp=yes"
         --property="PrivateDevices=yes"
         --property="ProtectHome=yes"
         --property="NoNewPrivileges=yes"
 
-        # DynamicUser has no home directory; HOME=/tmp points to the per-unit
+        # bk-agent has no home directory; HOME=/tmp points to the per-unit
         # private /tmp namespace (from PrivateTmp=yes), giving the agent a
         # writable location for ~/.ssh/known_hosts and other home-dir state.
         --property="Environment=HOME=/tmp"
@@ -370,9 +378,9 @@ spawn_agent() {
         args+=(--property="Environment=BUILDKITE_GIT_MIRRORS_PATH=${BK_GIT_MIRRORS_PATH}")
     fi
 
-    # --- Shared dependency cache (read-only; cache population via hooks) -
+    # --- Shared dependency cache (read-write; agents can populate the cache) -
     if [[ -n "${BK_CACHE_PATH:-}" ]]; then
-        args+=(--property="BindReadOnlyPaths=${BK_CACHE_PATH}")
+        args+=(--property="BindPaths=${BK_CACHE_PATH}")
     fi
 
     # --- SSH: prefer LoadCredential (key material, strongest isolation) --
@@ -403,19 +411,6 @@ spawn_agent() {
     # (the heredoc delimiter is quoted); bash -c expands them at runtime.
     local agent_cmd
     agent_cmd=$(cat <<'AGENT_CMD'
-    # DynamicUser=yes allocates an ephemeral UID not present in /etc/passwd.
-    # SSH and git call getpwuid() which returns NULL for unknown UIDs, causing
-    # "No user exists for uid XXXXX" errors and connection failures.
-    # libnss-wrapper intercepts NSS calls and returns a synthetic passwd entry.
-    _uid=$(id -u); _gid=$(id -g)
-    printf 'bk-agent:x:%d:%d:Buildkite Agent:/tmp:/bin/sh\n' "$_uid" "$_gid" > /tmp/nss_passwd
-    printf 'bk-agent:x:%d:\n' "$_gid" > /tmp/nss_group
-    _nss=$(ldconfig -p 2>/dev/null | awk '/libnss_wrapper\.so/{print $NF; exit}')
-    if [[ "$_nss" =~ ^(/usr/lib|/usr/lib64|/lib|/lib64)/ ]]; then
-        export LD_PRELOAD="$_nss"
-        export NSS_WRAPPER_PASSWD=/tmp/nss_passwd
-        export NSS_WRAPPER_GROUP=/tmp/nss_group
-    fi
     # Load the SSH key (injected via LoadCredential) into a per-job ssh-agent.
     if [[ -f "$CREDENTIALS_DIRECTORY/ssh-key" ]]; then
         _agent_out=$(ssh-agent -s)
