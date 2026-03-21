@@ -599,11 +599,23 @@ AGENT_USER="bk-agent"
 create_agent_user() {
     print_section "Creating agent user"
     if id "$AGENT_USER" &>/dev/null; then
-        print_info "User '${AGENT_USER}' already exists — skipping"
+        print_info "User '${AGENT_USER}' already exists — checking home dir"
+        # Ensure the passwd home is /nonexistent, not /home/bk-agent.
+        # Agent units run with ProtectHome=yes which makes /home inaccessible
+        # (EPERM). If passwd home points into /home, OpenSSH's hostkeys_foreach
+        # gets EPERM scanning ~/.ssh/known_hosts and falls back to prompting for
+        # host-key verification even when HOME=/tmp is set in the unit env.
+        local current_home
+        current_home=$(getent passwd "$AGENT_USER" | cut -d: -f6)
+        if [[ "$current_home" != "/nonexistent" ]]; then
+            run usermod --home /nonexistent "$AGENT_USER"
+            print_success "Updated '${AGENT_USER}' home dir to /nonexistent"
+        fi
     else
         run useradd \
             --system \
             --no-create-home \
+            --home-dir /nonexistent \
             --shell /usr/sbin/nologin \
             --comment "Buildkite Stack Agent" \
             "$AGENT_USER"
