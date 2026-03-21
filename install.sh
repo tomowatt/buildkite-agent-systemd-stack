@@ -552,15 +552,23 @@ install_polkit_rule() {
     cat > "$tmp_rules" << 'RULESEOF'
 // Allow the bk-stack service user to start and stop transient agent units via
 // systemd-run without interactive authentication.
-// Scoped to bk-agent-<uuid>.service units only — the service user cannot
-// manage arbitrary systemd units.
+// Scoped to bk-stack user + manage-units action only.
+//
+// When systemd-run spawns a transient unit with an explicit User= property,
+// systemd may check polkit during the property-setting phase before the unit
+// name is bound. In that case action.lookup("unit") returns null and a strict
+// unit-name check would fall through to the default policy. We grant YES for
+// bk-stack on manage-units regardless of whether the unit name is available,
+// relying on subject.user to scope the grant.
 polkit.addRule(function(action, subject) {
-    var unit = action.lookup("unit");
     if (action.id === "org.freedesktop.systemd1.manage-units" &&
-        subject.user === "bk-stack" &&
-        unit &&
-        unit.match(/^bk-agent-[0-9a-f-]+\.service$/)) {
-        return polkit.Result.YES;
+        subject.user === "bk-stack") {
+        var unit = action.lookup("unit");
+        // Allow when the unit name matches bk-agent-*.service, or when no
+        // unit name is present yet (property-setting phase of StartTransientUnit).
+        if (!unit || unit.match(/^bk-agent-[0-9a-f-]+\.service$/)) {
+            return polkit.Result.YES;
+        }
     }
 });
 RULESEOF
