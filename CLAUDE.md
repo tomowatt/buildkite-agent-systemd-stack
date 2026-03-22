@@ -2,6 +2,18 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Core Rules
+
+Do NOT make code edits unless explicitly asked. When investigating or answering questions, stick to read-only operations (Read, Grep, Glob) unless the user requests changes.
+
+## Investigation Guidelines
+
+When investigating issues, always confirm which specific feature/system the user is asking about before diving into code analysis. Ask clarifying questions if the request is ambiguous (e.g., 'Buildkite Agent hooks' vs 'Claude Code hooks', controller behaviour vs agent unit behaviour).
+
+## Debugging
+
+When debugging deployment or infrastructure issues, verify each fix against the actual error before moving to the next step. Don't assume the first hypothesis is correct — validate with logs or reproduction.
+
 ## What this is
 
 A Linux-native Buildkite agent orchestration system using the Buildkite Stacks API and systemd. The controller runs as a persistent daemon, polls for scheduled jobs, and spawns one transient systemd unit per job — no Docker or Kubernetes involved.
