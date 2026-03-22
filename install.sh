@@ -867,7 +867,6 @@ write_agent_config() {
 
 # Agents always disconnect after running a single job.
 disconnect-after-job = true
-no-color = true
 
 # Optional: agent name template (%hostname expands to the host's hostname).
 # name = "bk-%hostname-%n"

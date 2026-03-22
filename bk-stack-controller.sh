@@ -440,7 +440,7 @@ SSHEOF
     # The slight overhead of keeping the bash wrapper alive is negligible.
     BUILDKITE_AGENT_TOKEN=$(cat "$CREDENTIALS_DIRECTORY/agent-token") \
         buildkite-agent start --config "$_BK_AGENT_CFG" \
-            --disconnect-after-job --no-color --queue "$_BK_QUEUE"
+            --disconnect-after-job --queue "$_BK_QUEUE"
 AGENT_CMD
 )
     args+=(bash -c "$agent_cmd")
