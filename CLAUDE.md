@@ -74,12 +74,14 @@ bk-stack-controller.sh (runs as bk-stack user)
 ### Per-job isolation
 
 Each job runs in a transient `bk-agent-<uuid>.service` unit with:
-- `DynamicUser=yes` — ephemeral UID, auto-cleaned on exit
-- `PrivateTmp`, `PrivateDevices`, `ProtectHome`, `NoNewPrivileges`
+- `User=bk-agent Group=bk-agent` — dedicated system user (no login shell, passwd home `/tmp`)
+- `PrivateTmp=yes`, `PrivateDevices`, `ProtectSystem=strict`, `ProtectHome`, `NoNewPrivileges`, `RemoveIPC=yes`
 - `MemoryMax=4G`, `CPUQuota=200%`, `TasksMax=512`, `RuntimeMaxSec=<BK_JOB_TIMEOUT>`
 - Agent token injected via `LoadCredential=agent-token:<BK_AGENT_TOKEN_FILE>` — never in `Environment=` or on the command line
-- Agent config passed via `--config "$_BK_AGENT_CFG"` pointing to `/etc/bk-stack/agent.cfg` (mode 644, world-readable for the ephemeral UID)
-- The agent command is a multi-line `bash -c` heredoc that: (1) sets up `libnss-wrapper` so `getpwuid()` resolves for the ephemeral UID (fixes SSH "No user exists" errors), (2) starts a per-job `ssh-agent` and loads `$CREDENTIALS_DIRECTORY/ssh-key` if present, (3) reads the agent token from `$CREDENTIALS_DIRECTORY/agent-token` and exec-s `buildkite-agent start`
+- Agent config passed via `--config "$_BK_AGENT_CFG"` pointing to `/etc/bk-stack/agent.cfg` (mode 644, world-readable for `bk-agent`)
+- The agent command is a multi-line `bash -c` heredoc that: (1) writes `/tmp/.ssh/config` with `StrictHostKeyChecking accept-new` and explicit `UserKnownHostsFile` (aligns OpenSSH's `getpwuid()` lookup with `$HOME`), (2) starts a per-job `ssh-agent` and loads `$CREDENTIALS_DIRECTORY/ssh-key` if present, (3) reads the agent token from `$CREDENTIALS_DIRECTORY/agent-token` and exec-s `buildkite-agent start`
+
+**Why `bk-agent` passwd home is `/tmp`:** OpenSSH resolves `~/.ssh/*` via `getpwuid().pw_dir`, not `$HOME`. Setting the passwd home to `/tmp` aligns both so the keyscan output and SSH config written to `/tmp/.ssh/` are found by all SSH invocations within the unit. Each unit's `PrivateTmp=yes` gives it an isolated `/tmp` namespace, so concurrent jobs don't share SSH state.
 
 ### Key design constraints
 
@@ -89,7 +91,7 @@ Each job runs in a transient `bk-agent-<uuid>.service` unit with:
 
 **polkit rule** — `systemd-run` uses D-Bus to talk to PID 1; polkit controls access via `org.freedesktop.systemd1.manage-units`. `/etc/polkit-1/rules.d/50-bk-stack.rules` grants the `bk-stack` user unconditional YES on that action. `CAP_SYS_ADMIN` is not used — polkit checks UID, not Linux capabilities.
 
-**Agent config file** — `/etc/bk-stack/agent.cfg` is world-readable (644) so the `DynamicUser` ephemeral UID can read it. It must NOT contain the agent token. Dynamic per-job values (`_BK_QUEUE`, `_BK_AGENT_CFG`, `BUILDKITE_AGENT_ACQUIRE_JOB`) are injected as `Environment=` properties on the unit.
+**Agent config file** — `/etc/bk-stack/agent.cfg` is world-readable (644) so the `bk-agent` user can read it. It must NOT contain the agent token. Dynamic per-job values (`_BK_QUEUE`, `_BK_AGENT_CFG`, `BUILDKITE_AGENT_ACQUIRE_JOB`) are injected as `Environment=` properties on the unit.
 
 **Batch reservation** — `reserve_jobs_batch()` issues a single `PUT` to `batch-reserve` for all candidate UUIDs. The response's `reserved` array is filtered to determine which jobs to spawn. Jobs not in `reserved` were claimed by another controller instance.
 

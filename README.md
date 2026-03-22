@@ -2,11 +2,11 @@
 
 Run on-demand, isolated Buildkite agents on a bare Linux host using the [Buildkite Stacks API](https://buildkite.com/docs/apis/agent-api/stacks) and systemd — no containers required.
 
-Each job gets its own transient systemd unit with an ephemeral user, private filesystem, and resource limits. When the job finishes the unit is gone. If you're already familiar with Buildkite and just want to get running, jump to [Quick Start](#quick-start).
+Each job gets its own transient systemd unit with a dedicated unprivileged user, private filesystem, and resource limits. When the job finishes the unit is gone. If you're already familiar with Buildkite and just want to get running, jump to [Quick Start](#quick-start).
 
 ## How it works
 
-A persistent controller service (`bk-stack-controller`) registers with a Buildkite cluster queue and polls the Stacks API for scheduled jobs. When a job is available it atomically reserves it (preventing double-dispatch if multiple controller instances are running) and spawns a transient `bk-agent-<uuid>.service` unit via `systemd-run`. Each unit runs under an ephemeral UID (`DynamicUser=yes`) with private tmp, no new privileges, memory and CPU limits, and a configurable wall-clock timeout — all cleaned up automatically on exit. The Buildkite agent token is injected via `LoadCredential` so it never appears in environment variables or `systemctl show` output.
+A persistent controller service (`bk-stack-controller`) registers with a Buildkite cluster queue and polls the Stacks API for scheduled jobs. When a job is available it atomically reserves it (preventing double-dispatch if multiple controller instances are running) and spawns a transient `bk-agent-<uuid>.service` unit via `systemd-run`. Each unit runs as the dedicated `bk-agent` system user with private tmp, no new privileges, memory and CPU limits, and a configurable wall-clock timeout — all cleaned up automatically on exit. The Buildkite agent token is injected via `LoadCredential` so it never appears in environment variables or `systemctl show` output.
 
 ## Prerequisites
 
@@ -42,13 +42,14 @@ bash <(curl -fsSL https://raw.githubusercontent.com/tomowatt/buildkite-agent-sys
 
 > **Prefer to inspect first?** Clone the repo and run `sudo bash install.sh` locally.
 
-After installation, the controller writes a config file at `/etc/bk-stack/controller.env`. The three required variables are:
+After installation, the controller config lives at `/etc/bk-stack/controller.env`. The two required variables are:
 
 ```bash
-BK_AGENT_TOKEN=<your-buildkite-cluster-agent-token>
 BK_STACK_KEY=<unique-name-for-this-host>        # e.g. prod-linux-01-stack
 BK_AGENTAPI_BASE_URL=https://agent.buildkite.com/v3
 ```
+
+The agent token is stored separately at `/etc/bk-stack/secrets/agent-token` (mode 400) and is intentionally absent from `controller.env`.
 
 ## Service management
 
