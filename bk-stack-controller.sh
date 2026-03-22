@@ -413,11 +413,11 @@ spawn_agent() {
     agent_cmd=$(cat <<'AGENT_CMD'
     # Write a per-unit SSH config so that all SSH invocations within this unit
     # (buildkite-agent checkout, git clone --mirror, hooks) share the same
-    # known_hosts file. Without this, git mirror clones run with independent
-    # SSH contexts and prompt for host-key verification even after buildkite-agent
-    # has already accepted the key for the checkout step.
+    # known_hosts file. bk-agent's passwd home dir is /tmp so OpenSSH resolves
+    # ~/.ssh/config to /tmp/.ssh/config (via getpwuid, not $HOME) and reads this
+    # file. Each unit's PrivateTmp=yes gives it an isolated /tmp namespace.
     # StrictHostKeyChecking=accept-new: auto-accept first-seen keys but reject
-    # changed keys (safe for CI; DynamicUser meant no persistent known_hosts anyway).
+    # changed keys (safe for CI; no persistent known_hosts across jobs anyway).
     mkdir -p /tmp/.ssh
     chmod 700 /tmp/.ssh
     cat > /tmp/.ssh/config << 'SSHEOF'
